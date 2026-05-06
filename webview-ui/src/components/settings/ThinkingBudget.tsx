@@ -124,6 +124,14 @@ export const ThinkingBudget = ({ apiConfiguration, setApiConfigurationField, mod
 		setApiConfigurationField,
 	])
 
+	// For models that require a reasoning budget, default enableReasoningEffort to true on first load.
+	// This preserves backward-compatible behavior (thinking was always on for these models).
+	useEffect(() => {
+		if (isReasoningBudgetRequired && apiConfiguration.enableReasoningEffort === undefined) {
+			setApiConfigurationField("enableReasoningEffort", true, false)
+		}
+	}, [isReasoningBudgetRequired, apiConfiguration.enableReasoningEffort, setApiConfigurationField])
+
 	// Sync enableReasoningEffort based on selection
 	// "disable" turns off reasoning; "none" is a valid level (reasoning enabled)
 	useEffect(() => {
@@ -181,18 +189,16 @@ export const ThinkingBudget = ({ apiConfiguration, setApiConfigurationField, mod
 
 	return isReasoningBudgetSupported && !!modelInfo.maxTokens ? (
 		<>
-			{!isReasoningBudgetRequired && (
-				<div className="flex flex-col gap-1">
-					<Checkbox
-						checked={enableReasoningEffort}
-						onChange={(checked: boolean) =>
-							setApiConfigurationField("enableReasoningEffort", checked === true)
-						}>
-						{t("settings:providers.useReasoning")}
-					</Checkbox>
-				</div>
-			)}
-			{(isReasoningBudgetRequired || enableReasoningEffort) && (
+			<div className="flex flex-col gap-1">
+				<Checkbox
+					checked={enableReasoningEffort}
+					onChange={(checked: boolean) =>
+						setApiConfigurationField("enableReasoningEffort", checked === true)
+					}>
+					{t("settings:providers.useReasoning")}
+				</Checkbox>
+			</div>
+			{enableReasoningEffort && (
 				<>
 					<div className="flex flex-col gap-1">
 						<div className="font-medium">{t("settings:thinkingBudget.maxTokens")}</div>
@@ -249,9 +255,11 @@ export const ThinkingBudget = ({ apiConfiguration, setApiConfigurationField, mod
 					<SelectValue
 						placeholder={
 							currentReasoningEffort
-								? currentReasoningEffort === "none" || currentReasoningEffort === "disable"
-									? t("settings:providers.reasoningEffort.none")
-									: t(`settings:providers.reasoningEffort.${currentReasoningEffort}`)
+								? currentReasoningEffort === "disable"
+									? t("settings:providers.reasoningEffort.disable")
+									: currentReasoningEffort === "none"
+										? t("settings:providers.reasoningEffort.none")
+										: t(`settings:providers.reasoningEffort.${currentReasoningEffort}`)
 								: t("settings:common.select")
 						}
 					/>
@@ -259,9 +267,11 @@ export const ThinkingBudget = ({ apiConfiguration, setApiConfigurationField, mod
 				<SelectContent>
 					{availableOptions.map((value) => (
 						<SelectItem key={value} value={value}>
-							{value === "none" || value === "disable"
-								? t("settings:providers.reasoningEffort.none")
-								: t(`settings:providers.reasoningEffort.${value}`)}
+							{value === "disable"
+								? t("settings:providers.reasoningEffort.disable")
+								: value === "none"
+									? t("settings:providers.reasoningEffort.none")
+									: t(`settings:providers.reasoningEffort.${value}`)}
 						</SelectItem>
 					))}
 				</SelectContent>

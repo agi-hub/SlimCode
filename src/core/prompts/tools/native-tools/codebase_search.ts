@@ -1,22 +1,16 @@
 import type OpenAI from "openai"
 
-const CODEBASE_SEARCH_DESCRIPTION = `Find files most relevant to the search query using semantic search. Searches based on meaning rather than exact text matches. By default searches entire workspace. Reuse the user's exact wording unless there's a clear reason not to - their phrasing often helps semantic search. Queries MUST be in English (translate if needed).
+const CODEBASE_SEARCH_DESCRIPTION = `Semantic search over the workspace — finds files by meaning, not exact text. Use the user's exact wording when possible. Queries MUST be in English.
 
-**CRITICAL: For ANY exploration of code you haven't examined yet in this conversation, you MUST use this tool FIRST before any other search or file exploration tools.** This applies throughout the entire conversation, not just at the beginning. This tool uses semantic search to find relevant code based on meaning rather than just keywords, making it far more effective than regex-based search_files for understanding implementations. Even if you've already explored some code, any new area of exploration requires codebase_search first.
+CRITICAL: For any code area you haven't examined yet, use this tool FIRST before search_files or other exploration tools. This applies throughout the entire conversation.
 
 Parameters:
-- query: (required) The search query. Reuse the user's exact wording/question format unless there's a clear reason not to.
-- path: (optional) Limit search to specific subdirectory (relative to the current workspace directory). Leave empty for entire workspace.
+- query: (required) Meaning-based search query.
+- path: (optional) Subdirectory to limit scope (relative to workspace); omit for entire workspace.`
 
-Example: Searching for user authentication code
-{ "query": "User login and password hashing", "path": "src/auth" }
+const QUERY_PARAMETER_DESCRIPTION = `Meaning-based search query`
 
-Example: Searching entire workspace
-{ "query": "database connection pooling", "path": null }`
-
-const QUERY_PARAMETER_DESCRIPTION = `Meaning-based search query describing the information you need`
-
-const PATH_PARAMETER_DESCRIPTION = `Optional subdirectory (relative to the workspace) to limit the search scope`
+const PATH_PARAMETER_DESCRIPTION = `Optional subdirectory (relative to workspace) to limit scope`
 
 export default {
 	type: "function",

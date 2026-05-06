@@ -131,7 +131,8 @@ const ApiOptions = ({
 	setErrorMessage,
 }: ApiOptionsProps) => {
 	const { t } = useAppTranslation()
-	const { organizationAllowList, cloudIsAuthenticated, openAiCodexIsAuthenticated } = useExtensionState()
+	const { organizationAllowList, cloudIsAuthenticated, openAiCodexIsAuthenticated, listApiConfigMeta } =
+		useExtensionState()
 
 	const [customHeaders, setCustomHeaders] = useState<[string, string][]>(() => {
 		const headers = apiConfiguration?.openAiHeaders || {}
@@ -401,6 +402,21 @@ const ApiOptions = ({
 		}
 	}, [selectedProvider])
 
+	const fallbackHintProfileOptions = useMemo(() => {
+		const allowedProviders = new Set(["openai", "anthropic", "openrouter"])
+		const providerLabelMap = new Map(PROVIDERS.map((provider) => [provider.value, provider.label]))
+		return (listApiConfigMeta ?? [])
+			.filter((profile) => profile.apiProvider && allowedProviders.has(profile.apiProvider))
+			.map((profile) => {
+				const providerLabel = providerLabelMap.get(profile.apiProvider as string) ?? profile.apiProvider
+				const modelPart = profile.modelId ? ` (${profile.modelId})` : ""
+				return {
+					value: profile.name,
+					label: `${profile.name} - ${providerLabel}${modelPart}`,
+				}
+			})
+	}, [listApiConfigMeta])
+
 	// Convert providers to SearchableSelect options
 	const providerOptions = useMemo(() => {
 		// First filter by organization allow list
@@ -446,12 +462,6 @@ const ApiOptions = ({
 			const filteredOptions = options.filter((opt) => opt.value !== "roo")
 			options.length = 0
 			options.push(...filteredOptions)
-
-			const openRouterIndex = options.findIndex((opt) => opt.value === "openrouter")
-			if (openRouterIndex > 0) {
-				const [openRouterOption] = options.splice(openRouterIndex, 1)
-				options.unshift(openRouterOption)
-			}
 		}
 
 		return options
@@ -800,6 +810,38 @@ const ApiOptions = ({
 									}
 									onChange={(value) => setApiConfigurationField("consecutiveMistakeLimit", value)}
 								/>
+								<div>
+									<label className="block font-medium mb-1">
+										{t("settings:providers.fallbackHintProfile.title")}
+									</label>
+									<Select
+										value={apiConfiguration.fallbackApiConfigName || "__none__"}
+										onValueChange={(value) =>
+											setApiConfigurationField(
+												"fallbackApiConfigName",
+												value === "__none__" ? undefined : value,
+											)
+										}>
+										<SelectTrigger className="w-full" data-testid="fallback-hint-profile-select">
+											<SelectValue placeholder={t("settings:common.select")} />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="__none__">
+												{t("settings:providers.fallbackHintProfile.none")}
+											</SelectItem>
+											{fallbackHintProfileOptions.map((option) => (
+												<SelectItem key={option.value} value={option.value}>
+													{option.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									<div className="text-sm text-vscode-descriptionForeground mt-1">
+										{fallbackHintProfileOptions.length === 0
+											? t("settings:providers.fallbackHintProfile.empty")
+											: t("settings:providers.fallbackHintProfile.description")}
+									</div>
+								</div>
 								{selectedProvider === "openrouter" &&
 									openRouterModelProviders &&
 									Object.keys(openRouterModelProviders).length > 0 && (

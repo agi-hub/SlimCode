@@ -117,7 +117,9 @@ export async function checkAutoApproval({
 		}
 
 		if (state.alwaysAllowExecute === true) {
-			const decision = getCommandDecision(text, state.allowedCommands || [], state.deniedCommands || [])
+			const decision = getCommandDecision(text, state.allowedCommands || [], state.deniedCommands || [], {
+				fullAutoExecute: true,
+			})
 
 			if (decision === "auto_approve") {
 				return { decision: "approve" }

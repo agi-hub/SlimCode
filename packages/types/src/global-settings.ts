@@ -30,7 +30,7 @@ export const DEFAULT_WRITE_DELAY_MS = 1000
  * the LLM decides to retrieve more via `read_command_output`. Larger previews
  * mean more immediate context but consume more of the context window.
  *
- * - `small`: 5KB preview - Best for long-running commands with verbose output
+ * - `small`: 3KB preview - Best for long-running commands with verbose output
  * - `medium`: 10KB preview - Balanced default for most use cases
  * - `large`: 20KB preview - Best when commands produce critical info early
  *
@@ -47,17 +47,17 @@ export type TerminalOutputPreviewSize = "small" | "medium" | "large"
  * to disk and made available via the `read_command_output` tool.
  */
 export const TERMINAL_PREVIEW_BYTES: Record<TerminalOutputPreviewSize, number> = {
-	small: 5 * 1024, // 5KB
+	small: 3 * 1024, // 3KB
 	medium: 10 * 1024, // 10KB
 	large: 20 * 1024, // 20KB
 }
 
 /**
  * Default terminal output preview size.
- * The "medium" (10KB) setting provides a good balance between immediate
- * visibility and context window conservation for most use cases.
+ * The "small" (3KB) setting minimizes immediate context usage; users can
+ * choose medium/large or use read_command_output when more preview is needed.
  */
-export const DEFAULT_TERMINAL_OUTPUT_PREVIEW_SIZE: TerminalOutputPreviewSize = "medium"
+export const DEFAULT_TERMINAL_OUTPUT_PREVIEW_SIZE: TerminalOutputPreviewSize = "small"
 
 /**
  * Minimum checkpoint timeout in seconds.
@@ -130,6 +130,12 @@ export const globalSettingsSchema = z.object({
 	 */
 	includeCurrentCost: z.boolean().optional(),
 	/**
+	 * When enabled, instructs the model to use concise, direct replies without filler phrases,
+	 * reducing token usage in responses.
+	 * @default true
+	 */
+	simpleReply: z.boolean().optional(),
+	/**
 	 * Maximum number of git status file entries to include in the environment details.
 	 * Set to 0 to disable git status. The header (branch, commits) is always included when > 0.
 	 * @default 0
@@ -162,6 +168,8 @@ export const globalSettingsSchema = z.object({
 
 	maxOpenTabsContext: z.number().optional(),
 	maxWorkspaceFiles: z.number().optional(),
+	/** When true, first-round environment_details workspace listing is recursive; when false, top level only. */
+	workspaceRecursiveFileListInEnvironment: z.boolean().optional(),
 	showRooIgnoredFiles: z.boolean().optional(),
 	enableSubfolderRules: z.boolean().optional(),
 	maxImageFileSize: z.number().optional(),
@@ -362,15 +370,16 @@ export const EVALS_SETTINGS: RooCodeSettings = {
 	enableCheckpoints: false,
 
 	rateLimitSeconds: 0,
-	maxOpenTabsContext: 20,
-	maxWorkspaceFiles: 200,
-	maxGitStatusFiles: 20,
+	maxOpenTabsContext: 0,
+	maxWorkspaceFiles: 0,
+	workspaceRecursiveFileListInEnvironment: false,
+	maxGitStatusFiles: 0,
 	showRooIgnoredFiles: true,
 
 	includeDiagnosticMessages: true,
 	maxDiagnosticMessages: 50,
 
-	language: "en",
+	language: "zh-CN",
 	telemetrySetting: "enabled",
 
 	mcpEnabled: false,

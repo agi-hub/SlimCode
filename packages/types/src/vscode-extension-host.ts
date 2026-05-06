@@ -303,6 +303,7 @@ export type ExtensionState = Pick<
 	| "includeCurrentTime"
 	| "includeCurrentCost"
 	| "maxGitStatusFiles"
+	| "simpleReply"
 	| "requestDelaySeconds"
 	| "showWorktreesInHomeScreen"
 	| "disabledTools"
@@ -325,6 +326,8 @@ export type ExtensionState = Pick<
 	checkpointTimeout: number // Timeout for checkpoint initialization in seconds (default: 15)
 	maxOpenTabsContext: number // Maximum number of VSCode open tabs to include in context (0-500)
 	maxWorkspaceFiles: number // Maximum number of files to include in current working directory details (0-500)
+	/** Recursive vs top-level-only workspace file list in first-round environment_details */
+	workspaceRecursiveFileListInEnvironment: boolean
 	showRooIgnoredFiles: boolean // Whether to show .rooignore'd files in listings
 	enableSubfolderRules: boolean // Whether to load rules from subdirectories
 	maxReadFileLine?: number // Maximum line limit for read_file tool (-1 for default)

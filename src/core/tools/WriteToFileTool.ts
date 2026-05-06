@@ -18,6 +18,24 @@ import type { ToolUse } from "../../shared/tools"
 
 import { BaseTool, ToolCallbacks } from "./BaseTool"
 
+/** Max stars shown in chat while streaming (avoids unbounded header width). */
+const MAX_STREAMING_PROGRESS_STARS = 400
+/** One star per N streaming partial updates (slows visible progress ~10× vs every chunk). */
+const STREAMING_CHUNKS_PER_STAR = 10
+/** Line break in progress text after this many stars (readability in narrow header). */
+const PROGRESS_STARS_PER_LINE = 20
+
+function formatStreamingProgressStars(starCount: number): string {
+	if (starCount <= 0) {
+		return ""
+	}
+	const lines: string[] = []
+	for (let offset = 0; offset < starCount; offset += PROGRESS_STARS_PER_LINE) {
+		lines.push("*".repeat(Math.min(PROGRESS_STARS_PER_LINE, starCount - offset)))
+	}
+	return lines.join("\n")
+}
+
 interface WriteToFileParams {
 	path: string
 	content: string
@@ -25,6 +43,14 @@ interface WriteToFileParams {
 
 export class WriteToFileTool extends BaseTool<"write_to_file"> {
 	readonly name = "write_to_file" as const
+
+	/** Counts streaming partial updates for write_to_file (for progress UI). */
+	private partialStreamChunkCount = 0
+
+	override resetPartialState(): void {
+		super.resetPartialState()
+		this.partialStreamChunkCount = 0
+	}
 
 	async execute(params: WriteToFileParams, task: Task, callbacks: ToolCallbacks): Promise<void> {
 		const { pushToolResult, handleError, askApproval } = callbacks
@@ -209,10 +235,6 @@ export class WriteToFileTool extends BaseTool<"write_to_file"> {
 			EXPERIMENT_IDS.PREVENT_FOCUS_DISRUPTION,
 		)
 
-		if (isPreventFocusDisruptionEnabled) {
-			return
-		}
-
 		// relPath is guaranteed non-null after hasPathStabilized
 		let fileExists: boolean
 		const absolutePath = path.resolve(task.cwd, relPath!)
@@ -224,25 +246,37 @@ export class WriteToFileTool extends BaseTool<"write_to_file"> {
 			task.diffViewProvider.editType = fileExists ? "modify" : "create"
 		}
 
+		const isWriteProtected = task.rooProtectedController?.isWriteProtected(relPath!) || false
+		const isOutsideWorkspace = isPathOutsideWorkspace(absolutePath)
+
+		// Do not embed full `content` in partial chat messages: huge JSON on every
+		// chunk freezes the webview until the stream ends. The editor still gets
+		// full text via diffViewProvider.update below (when focus disruption is allowed).
+		this.partialStreamChunkCount++
+		const starCount = Math.min(
+			Math.floor(this.partialStreamChunkCount / STREAMING_CHUNKS_PER_STAR),
+			MAX_STREAMING_PROGRESS_STARS,
+		)
+		const progressStars = formatStreamingProgressStars(starCount)
+		const lightweightPartialProps: ClineSayTool = {
+			tool: fileExists ? "editedExistingFile" : "newFileCreated",
+			path: getReadablePath(task.cwd, relPath!),
+			content: "",
+			isOutsideWorkspace,
+			isProtected: isWriteProtected,
+		}
+		const partialMessage = JSON.stringify(lightweightPartialProps)
+		await task.ask("tool", partialMessage, block.partial, { text: progressStars }).catch(() => {})
+
+		if (isPreventFocusDisruptionEnabled) {
+			return
+		}
+
 		// Create parent directories early for new files to prevent ENOENT errors
 		// in subsequent operations (e.g., diffViewProvider.open)
 		if (!fileExists) {
 			await createDirectoriesForFile(absolutePath)
 		}
-
-		const isWriteProtected = task.rooProtectedController?.isWriteProtected(relPath!) || false
-		const isOutsideWorkspace = isPathOutsideWorkspace(absolutePath)
-
-		const sharedMessageProps: ClineSayTool = {
-			tool: fileExists ? "editedExistingFile" : "newFileCreated",
-			path: getReadablePath(task.cwd, relPath!),
-			content: newContent || "",
-			isOutsideWorkspace,
-			isProtected: isWriteProtected,
-		}
-
-		const partialMessage = JSON.stringify(sharedMessageProps)
-		await task.ask("tool", partialMessage, block.partial).catch(() => {})
 
 		if (newContent) {
 			if (!task.diffViewProvider.isEditing) {

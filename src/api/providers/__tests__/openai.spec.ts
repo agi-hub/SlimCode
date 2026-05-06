@@ -111,7 +111,7 @@ describe("OpenAiHandler", () => {
 				baseURL: expect.any(String),
 				apiKey: expect.any(String),
 				defaultHeaders: {
-					"HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+					"HTTP-Referer": "https://github.com/RooVetGit/SlimCode",
 					"X-Title": "Roo Code",
 					"User-Agent": `RooCode/${Package.version}`,
 				},
@@ -391,6 +391,56 @@ describe("OpenAiHandler", () => {
 			expect(callArgs.reasoning_effort).toBeUndefined()
 		})
 
+		it("should not yield reasoning chunks when reasoning is disabled but the stream sends reasoning_content", async () => {
+			mockCreate.mockImplementationOnce(async () => ({
+				[Symbol.asyncIterator]: async function* () {
+					yield {
+						choices: [
+							{
+								delta: {
+									content: "Hello ",
+									reasoning_content: "internal chain-of-thought",
+								},
+								index: 0,
+							},
+						],
+						usage: null,
+					}
+					yield {
+						choices: [{ delta: { content: "world" }, index: 0 }],
+						usage: {
+							prompt_tokens: 1,
+							completion_tokens: 2,
+							total_tokens: 3,
+						},
+					}
+				},
+			}))
+
+			const noReasoningOptions: ApiHandlerOptions = {
+				...mockOptions,
+				enableReasoningEffort: false,
+				openAiCustomModelInfo: {
+					contextWindow: 128_000,
+					supportsPromptCache: false,
+					supportsReasoningEffort: true,
+					reasoningEffort: "high",
+				},
+			}
+			const handler = new OpenAiHandler(noReasoningOptions)
+			const chunks: { type: string }[] = []
+			for await (const chunk of handler.createMessage(systemPrompt, messages)) {
+				chunks.push(chunk as { type: string })
+			}
+			expect(chunks.some((c) => c.type === "reasoning")).toBe(false)
+			expect(
+				chunks
+					.filter((c) => c.type === "text")
+					.map((c) => (c as any).text)
+					.join(""),
+			).toContain("Hello ")
+		})
+
 		it("should include max_tokens when includeMaxTokens is true", async () => {
 			const optionsWithMaxTokens: ApiHandlerOptions = {
 				...mockOptions,
@@ -572,7 +622,7 @@ describe("OpenAiHandler", () => {
 			const model = handler.getModel()
 			expect(model.id).toBe(mockOptions.openAiModelId)
 			expect(model.info).toBeDefined()
-			expect(model.info.contextWindow).toBe(128_000)
+			expect(model.info.contextWindow).toBe(openAiModelInfoSaneDefaults.contextWindow)
 			expect(model.info.supportsImages).toBe(true)
 		})
 

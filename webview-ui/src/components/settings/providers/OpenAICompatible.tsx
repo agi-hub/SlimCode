@@ -125,34 +125,36 @@ export const OpenAICompatible = ({
 
 	return (
 		<>
-			<VSCodeTextField
-				value={apiConfiguration?.openAiBaseUrl || ""}
-				type="url"
-				onInput={handleInputChange("openAiBaseUrl")}
-				placeholder={t("settings:placeholders.baseUrl")}
-				className="w-full">
-				<label className="block font-medium mb-1">{t("settings:providers.openAiBaseUrl")}</label>
-			</VSCodeTextField>
-			<VSCodeTextField
-				value={apiConfiguration?.openAiApiKey || ""}
-				type="password"
-				onInput={handleInputChange("openAiApiKey")}
-				placeholder={t("settings:placeholders.apiKey")}
-				className="w-full">
-				<label className="block font-medium mb-1">{t("settings:providers.apiKey")}</label>
-			</VSCodeTextField>
-			<ModelPicker
-				apiConfiguration={apiConfiguration}
-				setApiConfigurationField={setApiConfigurationField}
-				defaultModelId="gpt-4o"
-				models={openAiModels}
-				modelIdKey="openAiModelId"
-				serviceName="OpenAI"
-				serviceUrl="https://platform.openai.com"
-				organizationAllowList={organizationAllowList}
-				errorMessage={modelValidationError}
-				simplifySettings={simplifySettings}
-			/>
+			<>
+				<VSCodeTextField
+					value={apiConfiguration?.openAiBaseUrl || ""}
+					type="url"
+					onInput={handleInputChange("openAiBaseUrl")}
+					placeholder={t("settings:placeholders.baseUrl")}
+					className="w-full">
+					<label className="block font-medium mb-1">{t("settings:providers.openAiBaseUrl")}</label>
+				</VSCodeTextField>
+				<VSCodeTextField
+					value={apiConfiguration?.openAiApiKey || ""}
+					type="password"
+					onInput={handleInputChange("openAiApiKey")}
+					placeholder={t("settings:placeholders.apiKey")}
+					className="w-full">
+					<label className="block font-medium mb-1">{t("settings:providers.apiKey")}</label>
+				</VSCodeTextField>
+				<ModelPicker
+					apiConfiguration={apiConfiguration}
+					setApiConfigurationField={setApiConfigurationField}
+					defaultModelId="gpt-4o"
+					models={openAiModels}
+					modelIdKey="openAiModelId"
+					serviceName="OpenAI"
+					serviceUrl="https://platform.openai.com"
+					organizationAllowList={organizationAllowList}
+					errorMessage={modelValidationError}
+					simplifySettings={simplifySettings}
+				/>
+			</>
 			<R1FormatSetting
 				onChange={handleInputChange("openAiR1FormatEnabled", noTransform)}
 				openAiR1FormatEnabled={apiConfiguration?.openAiR1FormatEnabled ?? false}
@@ -244,11 +246,16 @@ export const OpenAICompatible = ({
 					onChange={(checked: boolean) => {
 						setApiConfigurationField("enableReasoningEffort", checked)
 
-						if (!checked) {
-							const { reasoningEffort: _, ...openAiCustomModelInfo } =
-								apiConfiguration.openAiCustomModelInfo || openAiModelInfoSaneDefaults
-
-							setApiConfigurationField("openAiCustomModelInfo", openAiCustomModelInfo)
+						const base = apiConfiguration.openAiCustomModelInfo || openAiModelInfoSaneDefaults
+						if (checked) {
+							// Persist capability so the extension can send explicit minimal reasoning_effort when turned off later.
+							setApiConfigurationField("openAiCustomModelInfo", {
+								...base,
+								supportsReasoningEffort: ["low", "medium", "high", "xhigh"],
+							})
+						} else {
+							const { reasoningEffort: _, ...rest } = base
+							setApiConfigurationField("openAiCustomModelInfo", rest)
 						}
 					}}>
 					{t("settings:providers.setReasoningLevel")}

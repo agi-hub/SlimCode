@@ -4,6 +4,7 @@ import type OpenAI from "openai"
 
 import type { ProviderSettings, ModeConfig, ModelInfo } from "@roo-code/types"
 import { customToolRegistry, formatNative } from "@roo-code/core"
+import { DEFAULT_OPT_CONFIG, slimMcpToolDefinitions } from "../../opt"
 
 import type { ClineProvider } from "../webview/ClineProvider"
 import { getRooDirectoriesForCwd } from "../../services/roo-config/index.js"

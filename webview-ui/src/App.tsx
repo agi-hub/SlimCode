@@ -217,7 +217,13 @@ const App = () => {
 	}, [tab])
 
 	if (!didHydrateState) {
-		return null
+		// Without a first `state` message the main tree never mounts — avoid a totally blank panel
+		// when the extension host is slow or blocked (e.g. SecretStorage, task history FS init).
+		return (
+			<div className="flex h-full w-full flex-col items-center justify-center gap-2 p-4 text-sm opacity-80">
+				<div className="animate-pulse">Loading…</div>
+			</div>
+		)
 	}
 
 	// Do not conditionally load ChatView, it's expensive and there's state we

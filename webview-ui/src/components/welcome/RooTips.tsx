@@ -29,31 +29,46 @@ const RooTips = () => {
 				<Trans i18nKey="chat:about" />
 			</p>
 			<div className="gap-4">
-				{tips.map((tip) => (
-					<div key={tip.titleKey} className="flex items-start gap-2 mt-2 mr-6 leading-relaxed">
-						{tip.icon}
-						<span>
-							<VSCodeLink className="text-muted-foreground underline" href={tip.href}>
-								{t(tip.titleKey)}
-							</VSCodeLink>
-							: {t(tip.descriptionKey)}
-						</span>
-					</div>
-				))}
+				{tips.map((tip) => {
+					const title = t(tip.titleKey)
+					const description = t(tip.descriptionKey)
+					if (!title.trim() && !description.trim()) {
+						return null
+					}
+					return (
+						<div key={tip.titleKey} className="flex items-start gap-2 mt-2 mr-6 leading-relaxed">
+							{description.trim() ? tip.icon : null}
+							<span>
+								{description.trim() ? (
+									<>
+										<VSCodeLink className="text-muted-foreground underline" href={tip.href}>
+											{title}
+										</VSCodeLink>
+										: {description}
+									</>
+								) : (
+									title
+								)}
+							</span>
+						</div>
+					)
+				})}
 			</div>
-			<p className="my-0 pr-8">
-				<Trans
-					i18nKey="chat:docs"
-					components={{
-						DocsLink: (
-							<VSCodeLink
-								className="text-muted-foreground underline"
-								href={buildDocLink("", "welcome")}
-							/>
-						),
-					}}
-				/>
-			</p>
+			{t("docs", { defaultValue: "" }).trim() ? (
+				<p className="my-0 pr-8">
+					<Trans
+						i18nKey="chat:docs"
+						components={{
+							DocsLink: (
+								<VSCodeLink
+									className="text-muted-foreground underline"
+									href={buildDocLink("", "welcome")}
+								/>
+							),
+						}}
+					/>
+				</p>
+			) : null}
 		</div>
 	)
 }

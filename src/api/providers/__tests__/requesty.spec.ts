@@ -58,7 +58,7 @@ describe("RequestyHandler", () => {
 			baseURL: "https://router.requesty.ai/v1",
 			apiKey: mockOptions.requestyApiKey,
 			defaultHeaders: {
-				"HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+				"HTTP-Referer": "https://github.com/RooVetGit/SlimCode",
 				"X-Title": "Roo Code",
 				"User-Agent": `RooCode/${Package.version}`,
 			},
@@ -73,7 +73,7 @@ describe("RequestyHandler", () => {
 			baseURL: "https://custom.requesty.ai/v1",
 			apiKey: mockOptions.requestyApiKey,
 			defaultHeaders: {
-				"HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+				"HTTP-Referer": "https://github.com/RooVetGit/SlimCode",
 				"X-Title": "Roo Code",
 				"User-Agent": `RooCode/${Package.version}`,
 			},

@@ -9,4 +9,6 @@ export interface SystemPromptSettings {
 	newTaskRequireTodos: boolean
 	/** When true, model should hide vendor/company identity in responses */
 	isStealthModel?: boolean
+	/** When true, instructs the model to reply concisely without filler phrases to save tokens */
+	simpleReply?: boolean
 }

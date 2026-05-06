@@ -23,7 +23,6 @@ import {
 
 import { findLastIndex } from "@roo/array"
 
-import { checkExistKey } from "@roo/checkExistApiConfig"
 import { Mode, defaultModeSlug, defaultPrompts } from "@roo/modes"
 import { CustomSupportPrompts } from "@roo/support-prompt"
 import { experimentDefault } from "@roo/experiments"
@@ -111,6 +110,7 @@ export interface ExtensionStateContextType extends ExtensionState {
 	setMaxOpenTabsContext: (value: number) => void
 	maxWorkspaceFiles: number
 	setMaxWorkspaceFiles: (value: number) => void
+	setWorkspaceRecursiveFileListInEnvironment: (value: boolean) => void
 	setTelemetrySetting: (value: TelemetrySetting) => void
 	awsUsePromptCache?: boolean
 	setAwsUsePromptCache: (value: boolean) => void
@@ -204,7 +204,7 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 		ttsSpeed: 1.0,
 		enableCheckpoints: true,
 		checkpointTimeout: DEFAULT_CHECKPOINT_TIMEOUT_SECONDS, // Default to 15 seconds
-		language: "en", // Default language code
+		language: "zh-CN",
 		writeDelayMs: 1000,
 		terminalShellIntegrationTimeout: 4000,
 		mcpEnabled: true,
@@ -217,12 +217,13 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 		experiments: experimentDefault,
 		enhancementApiConfigId: "",
 		hasOpenedModeSelector: false, // Default to false (not opened yet)
-		autoApprovalEnabled: false,
+		autoApprovalEnabled: true,
 		customModes: [],
-		maxOpenTabsContext: 20,
-		maxWorkspaceFiles: 200,
+		maxOpenTabsContext: 0,
+		maxWorkspaceFiles: 0,
+		workspaceRecursiveFileListInEnvironment: false,
 		cwd: "",
-		telemetrySetting: "unset",
+		telemetrySetting: "disabled",
 		showRooIgnoredFiles: true, // Default to showing .rooignore'd files with lock symbol (current behavior).
 		enableSubfolderRules: false, // Default to disabled - must be enabled to load rules from subdirectories
 		renderContext: "sidebar",
@@ -275,7 +276,7 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 	const [currentCheckpoint, setCurrentCheckpoint] = useState<string>()
 	const [extensionRouterModels, setExtensionRouterModels] = useState<RouterModels | undefined>(undefined)
 	const [marketplaceItems, setMarketplaceItems] = useState<any[]>([])
-	const [alwaysAllowFollowupQuestions, setAlwaysAllowFollowupQuestions] = useState(false) // Add state for follow-up questions auto-approve
+	const [alwaysAllowFollowupQuestions, setAlwaysAllowFollowupQuestions] = useState(true)
 	const [followupAutoApproveTimeoutMs, setFollowupAutoApproveTimeoutMs] = useState<number | undefined>(undefined) // Will be set from global settings
 	const [marketplaceInstalledMetadata, setMarketplaceInstalledMetadata] = useState<MarketplaceInstalledMetadata>({
 		project: {},
@@ -309,7 +310,8 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 				case "state": {
 					const newState = message.state ?? {}
 					setState((prevState) => mergeExtensionState(prevState, newState))
-					setShowWelcome(!checkExistKey(newState.apiConfiguration))
+					// Always skip the welcome/onboarding screen; open the main UI (chat) immediately.
+					setShowWelcome(false)
 					setDidHydrateState(true)
 					// Update alwaysAllowFollowupQuestions if present in state message
 					if ((newState as any).alwaysAllowFollowupQuestions !== undefined) {
@@ -558,6 +560,8 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 		setCustomModes: (value) => setState((prevState) => ({ ...prevState, customModes: value })),
 		setMaxOpenTabsContext: (value) => setState((prevState) => ({ ...prevState, maxOpenTabsContext: value })),
 		setMaxWorkspaceFiles: (value) => setState((prevState) => ({ ...prevState, maxWorkspaceFiles: value })),
+		setWorkspaceRecursiveFileListInEnvironment: (value) =>
+			setState((prevState) => ({ ...prevState, workspaceRecursiveFileListInEnvironment: value })),
 		setTelemetrySetting: (value) => setState((prevState) => ({ ...prevState, telemetrySetting: value })),
 		setShowRooIgnoredFiles: (value) => setState((prevState) => ({ ...prevState, showRooIgnoredFiles: value })),
 		setEnableSubfolderRules: (value) => setState((prevState) => ({ ...prevState, enableSubfolderRules: value })),

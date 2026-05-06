@@ -10,6 +10,14 @@ import { copyPaths, copyWasms, copyLocales, setupLocaleWatcher } from "@roo-code
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
+/**
+ * Prepended to extension.js / workers **before** any bundled code.
+ * Node 18's `stream` lacks getDefaultHighWaterMark; bundled deps call it at activation.
+ * Patching via `import * as stream` does not reliably mutate `require("node:stream")`.
+ */
+const STREAM_HIGH_WATER_MARK_POLYFILL_BANNER = `;(()=>{const p=m=>{try{if(!m||typeof m!=="object")return;if(typeof m.getDefaultHighWaterMark!=="function")m.getDefaultHighWaterMark=function(o){return o?16:65536};if(typeof m.setDefaultHighWaterMark!=="function")m.setDefaultHighWaterMark=function(){}}catch(e){}};try{p(require("stream"))}catch(e){}try{p(require("node:stream"))}catch(e){}try{p(require("readable-stream"))}catch(e){}})();
+`
+
 async function main() {
 	const name = "extension"
 	const production = process.argv.includes("--production")
@@ -100,6 +108,7 @@ async function main() {
 		plugins,
 		entryPoints: ["extension.ts"],
 		outfile: "dist/extension.js",
+		banner: { js: STREAM_HIGH_WATER_MARK_POLYFILL_BANNER },
 		// global-agent must be external because it dynamically patches Node.js http/https modules
 		// which breaks when bundled. It needs access to the actual Node.js module instances.
 		// undici must be bundled because our VSIX is packaged with `--no-dependencies`.
@@ -113,6 +122,7 @@ async function main() {
 		...buildOptions,
 		entryPoints: ["workers/countTokens.ts"],
 		outdir: "dist/workers",
+		banner: { js: STREAM_HIGH_WATER_MARK_POLYFILL_BANNER },
 	}
 
 	const [extensionCtx, workerCtx] = await Promise.all([

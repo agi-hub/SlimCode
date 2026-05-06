@@ -157,7 +157,7 @@ export async function copyConversationHistory({
 	logger: Logger
 }): Promise<void> {
 	// VS Code extension global storage path within the container
-	const extensionStoragePath = "/roo/.vscode/User/globalStorage/rooveterinaryinc.roo-cline"
+	const extensionStoragePath = "/roo/.vscode/User/globalStorage/rooveterinaryinc.SlimCode"
 	const taskStoragePath = path.join(extensionStoragePath, "tasks", rooTaskId)
 
 	const filesToCopy = ["api_conversation_history.json", "ui_messages.json"]

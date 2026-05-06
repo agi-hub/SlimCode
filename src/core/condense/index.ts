@@ -19,19 +19,11 @@ export type { FoldedFileContextResult, FoldedFileContextOptions } from "./folded
  * This allows the conversation to be summarized without requiring the tools parameter.
  */
 export function toolUseToText(block: Anthropic.Messages.ToolUseBlockParam): string {
-	let input: string
-	if (typeof block.input === "object" && block.input !== null) {
-		input = Object.entries(block.input)
-			.map(([key, value]) => {
-				const formattedValue =
-					typeof value === "object" && value !== null ? JSON.stringify(value, null, 2) : String(value)
-				return `${key}: ${formattedValue}`
-			})
-			.join("\n")
-	} else {
-		input = String(block.input)
-	}
-	return `[Tool Use: ${block.name}]\n${input}`
+	// Use compact single-line JSON to minimise token count during summarisation.
+	// Deep-nested objects are still preserved but without any indentation whitespace.
+	const input =
+		typeof block.input === "object" && block.input !== null ? JSON.stringify(block.input) : String(block.input)
+	return `[Tool Use: ${block.name}] ${input}`
 }
 
 /**

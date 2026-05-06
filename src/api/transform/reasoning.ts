@@ -36,9 +36,26 @@ export type GeminiReasoningParams = GenerateContentConfig["thinkingConfig"] & {
 
 export type GetModelReasoningOptions = {
 	model: ModelInfo
+	/** Chat Completions model id (OpenAI / OpenAI-compatible); used for OpenAI-only heuristics. */
+	modelId?: string
 	reasoningBudget: number | undefined
 	reasoningEffort: ReasoningEffortExtended | "disable" | undefined
 	settings: ProviderSettings
+}
+
+/** True if the model is plausibly a Chat Completions "reasoning effort" model (omit would still default to thinking on many gateways). */
+function openAiModelUsesReasoningEffortParam(model: ModelInfo): boolean {
+	if (model.supportsReasoningEffort === true) return true
+	if (Array.isArray(model.supportsReasoningEffort) && model.supportsReasoningEffort.length > 0) return true
+	const effort = model.reasoningEffort as string | undefined
+	if (effort != null && effort !== "disable") return true
+	return false
+}
+
+/** When custom ModelInfo is sparse, infer reasoning-style models from the id (OpenAI-compatible gateways). */
+function openAiModelIdSuggestsReasoningParam(modelId: string | undefined): boolean {
+	if (!modelId) return false
+	return /\b(o[1-9]|gpt-5|deepseek-reasoner|qwen.*thinking|[-:]thinking)\b/i.test(modelId)
 }
 
 export const getOpenRouterReasoning = ({
@@ -113,9 +130,20 @@ export const getAnthropicReasoning = ({
 
 export const getOpenAiReasoning = ({
 	model,
+	modelId,
 	reasoningEffort,
 	settings,
 }: GetModelReasoningOptions): OpenAiReasoningParams | undefined => {
+	// User disabled reasoning in settings: many OpenAI-compatible servers treat a *missing*
+	// `reasoning_effort` as "use server defaults" (often still full thinking). Send the weakest
+	// explicit Chat Completions value so the upstream actually minimizes extended reasoning.
+	if (
+		settings?.enableReasoningEffort === false &&
+		(openAiModelUsesReasoningEffortParam(model) || openAiModelIdSuggestsReasoningParam(modelId))
+	) {
+		return { reasoning_effort: "minimal" }
+	}
+
 	if (!shouldUseReasoningEffort({ model, settings })) return undefined
 	if (reasoningEffort === "disable" || !reasoningEffort) return undefined
 

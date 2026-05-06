@@ -36,7 +36,7 @@ describe("isToolAllowedForMode", () => {
 	]
 
 	it("allows always available tools", () => {
-		expect(isToolAllowedForMode("ask_followup_question", "markdown-editor", customModes)).toBe(true)
+		expect(isToolAllowedForMode("update_todo_list", "markdown-editor", customModes)).toBe(true)
 		expect(isToolAllowedForMode("attempt_completion", "markdown-editor", customModes)).toBe(true)
 	})
 
@@ -612,7 +612,7 @@ describe("FileRestrictionError", () => {
 				slug: "debug",
 				name: "🪲 Debug",
 				roleDefinition:
-					"You are Roo, an expert software debugger specializing in systematic problem diagnosis and resolution.",
+					"You are SlimCode, an expert software debugger specializing in systematic problem diagnosis and resolution.",
 				groups: ["read", "edit", "command", "mcp"],
 			})
 			expect(debugMode?.customInstructions).toContain(
@@ -633,7 +633,7 @@ describe("FileRestrictionError", () => {
 				slug: "debug",
 				name: "🪲 Debug",
 				roleDefinition:
-					"You are Roo, an expert software debugger specializing in systematic problem diagnosis and resolution.",
+					"You are SlimCode, an expert software debugger specializing in systematic problem diagnosis and resolution.",
 			})
 		})
 
@@ -691,7 +691,7 @@ describe("FileRestrictionError", () => {
 			const result = await getFullModeDetails("non-existent")
 			expect(result).toMatchObject({
 				...modes[0],
-				// The first mode (architect) has its own customInstructions
+				// Fallback is the first built-in mode (code)
 			})
 		})
 	})

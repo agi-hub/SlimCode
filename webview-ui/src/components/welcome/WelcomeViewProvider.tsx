@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import {
-	VSCodeLink,
-	VSCodeProgressRing,
-	VSCodeRadio,
-	VSCodeRadioGroup,
-	VSCodeTextField,
-} from "@vscode/webview-ui-toolkit/react"
+import { VSCodeProgressRing, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 
-import type { ProviderSettings } from "@roo-code/types"
+import { type ProviderSettings } from "@roo-code/types"
 
 import { useExtensionState } from "@src/context/ExtensionStateContext"
 import { validateApiConfiguration } from "@src/utils/validate"
@@ -18,13 +12,9 @@ import { Button } from "@src/components/ui"
 import ApiOptions from "../settings/ApiOptions"
 import { Tab, TabContent } from "../common/Tab"
 
-import RooHero from "./RooHero"
 import { Trans } from "react-i18next"
 import { ArrowLeft, ArrowRight, BadgeInfo, Brain, TriangleAlert } from "lucide-react"
 import { buildDocLink } from "@/utils/docLinks"
-
-type ProviderOption = "roo" | "custom"
-type AuthOrigin = "landing" | "providerSelection"
 
 const WelcomeViewProvider = () => {
 	const {
@@ -37,13 +27,20 @@ const WelcomeViewProvider = () => {
 	} = useExtensionState()
 	const { t } = useAppTranslation()
 	const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined)
-	const [selectedProvider, setSelectedProvider] = useState<ProviderOption | null>(null)
 	const [authInProgress, setAuthInProgress] = useState(false)
-	const [authOrigin, setAuthOrigin] = useState<AuthOrigin | null>(null)
 	const [showManualEntry, setShowManualEntry] = useState(false)
 	const [manualUrl, setManualUrl] = useState("")
 	const [manualErrorMessage, setManualErrorMessage] = useState<boolean | undefined>(undefined)
 	const manualUrlInputRef = useRef<HTMLInputElement | null>(null)
+
+	// Default third-party provider: OpenAI-compatible
+	useEffect(() => {
+		if (!apiConfiguration?.apiProvider) {
+			setApiConfiguration({
+				apiProvider: "openai",
+			})
+		}
+	}, [apiConfiguration?.apiProvider, setApiConfiguration])
 
 	// When auth completes during the provider signup flow, either:
 	// 1. If user skipped model selection (cloudAuthSkipModel=true), navigate to provider selection with "custom" selected
@@ -51,8 +48,7 @@ const WelcomeViewProvider = () => {
 	useEffect(() => {
 		if (cloudIsAuthenticated && authInProgress) {
 			if (cloudAuthSkipModel) {
-				// User skipped model selection during signup - navigate to provider selection with 3rd-party selected
-				setSelectedProvider("custom")
+				// User skipped model selection during signup — welcome only offers 3rd-party provider
 				setAuthInProgress(false)
 				setShowManualEntry(false)
 				// Clear the flag so it doesn't affect future flows
@@ -91,70 +87,24 @@ const WelcomeViewProvider = () => {
 	)
 
 	const handleGetStarted = useCallback(() => {
-		// Landing screen - always trigger auth with Roo
-		if (selectedProvider === null) {
-			setAuthOrigin("landing")
-			vscode.postMessage({ type: "rooCloudSignIn", useProviderSignup: true })
-			setAuthInProgress(true)
+		// Welcome flow: only 3rd-party provider (Router option hidden)
+		const error = apiConfiguration ? validateApiConfiguration(apiConfiguration) : undefined
+
+		if (error) {
+			setErrorMessage(error)
+			return
 		}
-		// Provider Selection screen
-		else if (selectedProvider === "roo") {
-			if (cloudIsAuthenticated) {
-				// Already authenticated - save config and finish
-				const rooConfig: ProviderSettings = {
-					apiProvider: "roo",
-				}
-				vscode.postMessage({
-					type: "upsertApiConfiguration",
-					text: currentApiConfigName,
-					apiConfiguration: rooConfig,
-				})
-			} else {
-				// Need to authenticate
-				setAuthOrigin("providerSelection")
-				vscode.postMessage({ type: "rooCloudSignIn", useProviderSignup: true })
-				setAuthInProgress(true)
-			}
-		} else {
-			// Custom provider - validate first
-			const error = apiConfiguration ? validateApiConfiguration(apiConfiguration) : undefined
 
-			if (error) {
-				setErrorMessage(error)
-				return
-			}
-
-			setErrorMessage(undefined)
-			vscode.postMessage({ type: "upsertApiConfiguration", text: currentApiConfigName, apiConfiguration })
-		}
-	}, [selectedProvider, cloudIsAuthenticated, apiConfiguration, currentApiConfigName])
-
-	const handleNoAccount = useCallback(() => {
-		// Navigate to Provider Selection, defaulting to Roo option
-		setSelectedProvider("roo")
-	}, [])
-
-	const handleBackToLanding = useCallback(() => {
-		// Return to the landing screen
-		setSelectedProvider(null)
 		setErrorMessage(undefined)
-	}, [])
+		vscode.postMessage({ type: "upsertApiConfiguration", text: currentApiConfigName, apiConfiguration })
+	}, [apiConfiguration, currentApiConfigName])
 
 	const handleGoBack = useCallback(() => {
 		setAuthInProgress(false)
 		setShowManualEntry(false)
 		setManualUrl("")
 		setManualErrorMessage(false)
-
-		// Return to the appropriate screen based on origin
-		if (authOrigin === "providerSelection") {
-			// Keep selectedProvider as-is, user returns to Provider Selection
-		} else {
-			// Return to Landing
-			setSelectedProvider(null)
-		}
-		setAuthOrigin(null)
-	}, [authOrigin])
+	}, [])
 
 	const handleManualUrlChange = (e: any) => {
 		const url = e.target.value
@@ -239,7 +189,7 @@ const WelcomeViewProvider = () => {
 												ref={manualUrlInputRef as any}
 												value={manualUrl}
 												onKeyUp={handleManualUrlChange}
-												placeholder="vscode://RooVeterinaryInc.roo-cline/auth/clerk/callback?state=..."
+												placeholder="vscode://RooVeterinaryInc.SlimCode/auth/clerk/callback?state=..."
 												className="flex-1"
 											/>
 											<Button
@@ -287,48 +237,10 @@ const WelcomeViewProvider = () => {
 		)
 	}
 
-	// Landing screen - shown when selectedProvider === null
-	if (selectedProvider === null) {
-		return (
-			<Tab>
-				<TabContent className="relative flex flex-col gap-4 p-6 justify-center">
-					<RooHero />
-					<h2 className="mt-0 mb-0 text-xl">{t("welcome:landing.greeting")}</h2>
-
-					<div className="space-y-4 leading-normal">
-						<p className="text-base text-vscode-foreground">
-							<Trans i18nKey="welcome:landing.introduction" />
-						</p>
-						<p className="mb-0 font-semibold">
-							<Trans i18nKey="welcome:landing.accountMention" />
-						</p>
-					</div>
-
-					<div className="mt-2 flex gap-2 items-center">
-						<Button onClick={handleGetStarted} variant="primary">
-							{t("welcome:landing.getStarted")}
-						</Button>
-						<VSCodeLink onClick={handleNoAccount} className="cursor-pointer">
-							{t("welcome:landing.noAccount")}
-						</VSCodeLink>
-					</div>
-
-					<div className="absolute bottom-6 left-6">
-						<button
-							onClick={() => vscode.postMessage({ type: "importSettings" })}
-							className="cursor-pointer bg-transparent border-none p-0 text-vscode-foreground hover:underline">
-							{t("welcome:importSettings")}
-						</button>
-					</div>
-				</TabContent>
-			</Tab>
-		)
-	}
-
-	// Provider Selection screen - shown when selectedProvider is "roo" or "custom"
+	// Provider Selection screen
 	return (
 		<Tab>
-			<TabContent className="flex flex-col gap-4 p-6 justify-center">
+			<TabContent className="relative flex flex-col gap-4 p-6 justify-center">
 				<Brain className="size-8" strokeWidth={1.5} />
 				<h2 className="mt-0 mb-0 text-xl">{t("welcome:providerSignup.heading")}</h2>
 
@@ -337,47 +249,17 @@ const WelcomeViewProvider = () => {
 				</p>
 
 				<div>
-					<VSCodeRadioGroup
-						value={selectedProvider}
-						onChange={(e: Event | React.FormEvent<HTMLElement>) => {
-							const target = ((e as CustomEvent)?.detail?.target ||
-								(e.target as HTMLInputElement)) as HTMLInputElement
-							setSelectedProvider(target.value as ProviderOption)
-						}}>
-						{/* Roo Code Router Option */}
-						<VSCodeRadio value="roo" className="flex items-start gap-2">
-							<div className="flex-1 space-y-1 cursor-pointer">
-								<p className="text-lg font-semibold block -mt-1">
-									{t("welcome:providerSignup.rooCloudProvider")}
-								</p>
-								<p className="text-base text-vscode-descriptionForeground mt-0">
-									{t("welcome:providerSignup.rooCloudDescription")}{" "}
-									<VSCodeLink
-										href="https://roocode.com/provider/pricing?utm_source=extension&utm_medium=welcome-screen&utm_campaign=provider-signup&utm_content=learn-more"
-										className="cursor-pointer">
-										{t("welcome:providerSignup.learnMore")}
-									</VSCodeLink>
-								</p>
-							</div>
-						</VSCodeRadio>
+					<div className="space-y-1 mb-4">
+						<p className="text-lg font-semibold block -mt-1 m-0">
+							{t("welcome:providerSignup.useAnotherProvider")}
+						</p>
+						<p className="text-base text-vscode-descriptionForeground mt-0 mb-0">
+							{t("welcome:providerSignup.useAnotherProviderDescription")}
+						</p>
+					</div>
 
-						{/* Use Another Provider Option */}
-						<VSCodeRadio value="custom" className="flex items-start gap-2">
-							<div className="flex-1 space-y-1 cursor-pointer">
-								<p className="text-lg font-semibold block -mt-1">
-									{t("welcome:providerSignup.useAnotherProvider")}
-								</p>
-								<p className="text-base text-vscode-descriptionForeground mt-0">
-									{t("welcome:providerSignup.useAnotherProviderDescription")}
-								</p>
-							</div>
-						</VSCodeRadio>
-					</VSCodeRadioGroup>
-
-					{/* Expand API options only when custom provider is selected, max height is used to force a transition */}
 					<div className="mb-8 border-l-2 border-vscode-panel-border pl-6 ml-[7px]">
-						<div
-							className={`overflow-clip transition-[max-height] ease-in-out duration-300 ${selectedProvider === "custom" ? "max-h-[600px]" : "max-h-0"}`}>
+						<div className="max-h-[600px] overflow-clip">
 							<ApiOptions
 								fromWelcomeView
 								apiConfiguration={apiConfiguration || {}}
@@ -391,13 +273,18 @@ const WelcomeViewProvider = () => {
 				</div>
 
 				<div className="-mt-4 flex gap-2">
-					<Button onClick={handleBackToLanding} variant="secondary">
-						<ArrowLeft className="size-4" />
-						{t("welcome:providerSignup.goBack")}
-					</Button>
 					<Button onClick={handleGetStarted} variant="primary">
 						{t("welcome:providerSignup.finish")} →
 					</Button>
+				</div>
+
+				<div className="absolute bottom-6 left-6">
+					<button
+						type="button"
+						onClick={() => vscode.postMessage({ type: "importSettings" })}
+						className="cursor-pointer bg-transparent border-none p-0 text-vscode-foreground hover:underline">
+						{t("welcome:importSettings")}
+					</button>
 				</div>
 			</TabContent>
 		</Tab>

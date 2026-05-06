@@ -32,7 +32,7 @@ function parseThemeString(themeString: string | undefined): any {
 	return JSON.parse(themeString ?? "{}")
 }
 
-export async function getTheme() {
+export async function getTheme(extensionUri?: vscode.Uri) {
 	let currentTheme = undefined
 	const colorTheme = vscode.workspace.getConfiguration("workbench").get<string>("colorTheme") || "Default Dark Modern"
 
@@ -54,9 +54,13 @@ export async function getTheme() {
 		}
 
 		if (currentTheme === undefined && defaultThemes[colorTheme]) {
+			const resolvedUri = extensionUri ?? getExtensionUri()
+			if (!resolvedUri) {
+				return undefined
+			}
 			const filename = `${defaultThemes[colorTheme]}.json`
 			currentTheme = await fs.readFile(
-				path.join(getExtensionUri().fsPath, "integrations", "theme", "default-themes", filename),
+				path.join(resolvedUri.fsPath, "integrations", "theme", "default-themes", filename),
 				"utf-8",
 			)
 		}
@@ -65,8 +69,12 @@ export async function getTheme() {
 		let parsed = parseThemeString(currentTheme)
 
 		if (parsed.include) {
+			const resolvedUri = extensionUri ?? getExtensionUri()
+			if (!resolvedUri) {
+				return undefined
+			}
 			const includeThemeString = await fs.readFile(
-				path.join(getExtensionUri().fsPath, "integrations", "theme", "default-themes", parsed.include),
+				path.join(resolvedUri.fsPath, "integrations", "theme", "default-themes", parsed.include),
 				"utf-8",
 			)
 			const includeTheme = parseThemeString(includeThemeString)
@@ -142,6 +150,6 @@ export function mergeJson(
 	}
 }
 
-function getExtensionUri(): vscode.Uri {
-	return vscode.extensions.getExtension(`${Package.publisher}.${Package.name}`)!.extensionUri
+function getExtensionUri(): vscode.Uri | undefined {
+	return vscode.extensions.getExtension(`${Package.publisher}.${Package.name}`)?.extensionUri
 }

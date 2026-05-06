@@ -99,3 +99,33 @@ describe("getCommandDecision — integration with dangerous substitution checks"
 		expect(getCommandDecision('echo "${var@P}"', allowedCommands)).toBe("ask_user")
 	})
 })
+
+describe("getCommandDecision — fullAutoExecute (always allow execute)", () => {
+	const allowedCommands = ["node", "echo"]
+
+	it("should auto-approve dangerous parameter expansion when fullAutoExecute is set", () => {
+		expect(getCommandDecision('echo "${var@P}"', allowedCommands, [], { fullAutoExecute: true })).toBe(
+			"auto_approve",
+		)
+	})
+
+	it("should auto-approve subshell segments not on the allowlist when fullAutoExecute is set", () => {
+		expect(getCommandDecision("echo $(whoami)", allowedCommands, [], { fullAutoExecute: true })).toBe(
+			"auto_approve",
+		)
+	})
+
+	it("should still auto-deny when a sub-command matches the denylist", () => {
+		expect(
+			getCommandDecision("echo ok && rm -rf /tmp/x", allowedCommands, ["rm"], { fullAutoExecute: true }),
+		).toBe("auto_deny")
+	})
+
+	it("should still ask user when the allowlist is empty (no relaxed match)", () => {
+		expect(getCommandDecision("echo hi", [], [], { fullAutoExecute: true })).toBe("ask_user")
+	})
+
+	it("should still ask user for dangerous patterns when the allowlist is empty", () => {
+		expect(getCommandDecision('echo "${var@P}"', [], [], { fullAutoExecute: true })).toBe("ask_user")
+	})
+})

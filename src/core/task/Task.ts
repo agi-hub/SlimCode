@@ -90,6 +90,7 @@ import { calculateApiCostAnthropic, calculateApiCostOpenAI } from "../../shared/
 import { getWorkspacePath } from "../../utils/path"
 import { sanitizeToolUseId } from "../../utils/tool-id"
 import { getTaskDirectoryPath } from "../../utils/storage"
+import { logLlmCall } from "../../utils/llm-call-logger"
 
 // prompts
 import { formatResponse } from "../prompts/responses"
@@ -118,6 +119,13 @@ import {
 import { getEnvironmentDetails } from "../environment/getEnvironmentDetails"
 import { checkContextWindowExceededError } from "../context/context-management/context-error-handling"
 import {
+	DEFAULT_OPT_CONFIG,
+	trimReasoningHistory,
+	compactOldToolBlocks,
+	slimMcpToolDefinitions,
+	trimOldEnvironmentDetails,
+} from "../../opt"
+import {
 	type CheckpointDiffOptions,
 	type CheckpointRestoreOptions,
 	getCheckpointService,
@@ -132,6 +140,8 @@ import { AutoApprovalHandler, checkAutoApproval } from "../auto-approval"
 import { MessageManager } from "../message-manager"
 import { validateAndFixToolResultIds } from "./validateToolResultIds"
 import { mergeConsecutiveApiMessages } from "./mergeConsecutiveApiMessages"
+import { supportPrompt } from "../../shared/support-prompt"
+import { generateHintFromFallbackProvider } from "./hint-injector"
 
 const MAX_EXPONENTIAL_BACKOFF_SECONDS = 600 // 10 minutes
 const DEFAULT_USAGE_COLLECTION_TIMEOUT_MS = 5000 // 5 seconds
@@ -322,6 +332,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	consecutiveMistakeCountForApplyDiff: Map<string, number> = new Map()
 	consecutiveMistakeCountForEditFile: Map<string, number> = new Map()
 	consecutiveNoToolUseCount: number = 0
+	private hasAutoReflected: boolean = false
+	private hasInjectedFallbackHint: boolean = false
 	consecutiveNoAssistantMessagesCount: number = 0
 	toolUsage: ToolUsage = {}
 
@@ -416,6 +428,10 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 	// MessageManager for high-level message operations (lazy initialized)
 	private _messageManager?: MessageManager
+
+	// optB: in-task cache for getSystemPrompt() result (invalidated on mode/config change)
+	private _systemPromptCache?: string
+	private _systemPromptCacheKey?: string
 
 	constructor({
 		provider,
@@ -2526,6 +2542,44 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			}
 
 			if (this.consecutiveMistakeLimit > 0 && this.consecutiveMistakeCount >= this.consecutiveMistakeLimit) {
+				const provider = this.providerRef.deref()
+				const state = await provider?.getState()
+				const customSupportPrompts = state?.customSupportPrompts
+				if (!this.hasAutoReflected) {
+					const reflectPrompt = supportPrompt.create("REFLECT", {}, customSupportPrompts)
+					currentUserContent.push({ type: "text", text: reflectPrompt })
+					this.hasAutoReflected = true
+					this.consecutiveMistakeCount = 0
+					stack.push({
+						userContent: [...currentUserContent],
+						includeFileDetails: false,
+					})
+					continue
+				}
+
+				if (!this.hasInjectedFallbackHint) {
+					const fallbackConfig = await this.resolveFallbackHintApiConfiguration()
+					if (fallbackConfig) {
+						const hint = await generateHintFromFallbackProvider(fallbackConfig, {
+							task: this.metadata.task || "",
+							recentContext: this.getRecentConversationContext(),
+						})
+						if (hint) {
+							currentUserContent.push({
+								type: "text",
+								text: `Additional guidance from a stronger model:\n${hint}\n\nUse this guidance to try a different approach.`,
+							})
+							this.hasInjectedFallbackHint = true
+							this.consecutiveMistakeCount = 0
+							stack.push({
+								userContent: [...currentUserContent],
+								includeFileDetails: false,
+							})
+							continue
+						}
+					}
+				}
+
 				// Track consecutive mistake errors in telemetry via event and PostHog exception tracking.
 				// The reason is "no_tools_used" because this limit is reached via initiateTaskLoop
 				// which increments consecutiveMistakeCount when the model doesn't use any tools.
@@ -2559,6 +2613,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				}
 
 				this.consecutiveMistakeCount = 0
+				this.hasAutoReflected = false
+				this.hasInjectedFallbackHint = false
 			}
 
 			// Getting verbose details is an expensive operation, it uses ripgrep to
@@ -3612,6 +3668,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					} else {
 						// Reset counter when tools are used successfully
 						this.consecutiveNoToolUseCount = 0
+						this.hasAutoReflected = false
+						this.hasInjectedFallbackHint = false
 					}
 
 					// Push to stack if there's content OR if we're paused waiting for a subtask.
@@ -3777,6 +3835,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			language,
 			apiConfiguration,
 			enableSubfolderRules,
+			simpleReply,
 		} = state ?? {}
 
 		return await (async () => {
@@ -3788,7 +3847,28 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 			const modelInfo = this.api.getModel().info
 
-			return SYSTEM_PROMPT(
+			// optB: build a stable cache key from all state that affects system prompt output.
+			// MCP hub tool list is not stable across requests (servers may reconnect), so we
+			// include the number of connected tools as a lightweight proxy.
+			const mcpToolCount = mcpHub?.getServers().length ?? 0
+			const cacheKey = JSON.stringify([
+				mode,
+				customInstructions,
+				language,
+				rooIgnoreInstructions,
+				apiConfiguration?.todoListEnabled,
+				enableSubfolderRules,
+				simpleReply,
+				this.api.getModel().id,
+				mcpToolCount,
+				this.metadata.task,
+			])
+
+			if (this._systemPromptCache && this._systemPromptCacheKey === cacheKey) {
+				return this._systemPromptCache
+			}
+
+			const prompt = SYSTEM_PROMPT(
 				provider.context,
 				this.cwd,
 				false,
@@ -3810,12 +3890,65 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 						.getConfiguration(Package.name)
 						.get<boolean>("newTaskRequireTodos", false),
 					isStealthModel: modelInfo?.isStealthModel,
+					simpleReply: simpleReply !== false,
 				},
 				undefined, // todoList
 				this.api.getModel().id,
 				provider.getSkillsManager(),
+				this.metadata.task,
 			)
+
+			this._systemPromptCacheKey = cacheKey
+			this._systemPromptCache = await prompt
+			return this._systemPromptCache
 		})()
+	}
+
+	private getRecentConversationContext(limit: number = 8): string {
+		const recent = this.clineMessages
+			.filter(
+				(msg) =>
+					(msg.type === "ask" || msg.type === "say") && typeof msg.text === "string" && msg.text.length > 0,
+			)
+			.slice(-limit)
+			.map((msg) => {
+				const role = msg.type === "ask" ? "User" : "Assistant"
+				const content = (msg.text || "").replace(/\s+/g, " ").trim()
+				return `${role}: ${content.slice(0, 300)}${content.length > 300 ? "..." : ""}`
+			})
+
+		return recent.join("\n")
+	}
+
+	private async resolveFallbackHintApiConfiguration(): Promise<ProviderSettings | null> {
+		const fallbackProfileName = this.apiConfiguration.fallbackApiConfigName?.trim()
+		if (!fallbackProfileName) {
+			return null
+		}
+
+		const provider = this.providerRef.deref()
+		if (!provider || !provider.hasProviderProfileEntry(fallbackProfileName)) {
+			return null
+		}
+
+		try {
+			const { name: _name, ...fallbackConfig } = await provider.providerSettingsManager.getProfile({
+				name: fallbackProfileName,
+			})
+			return fallbackConfig
+		} catch (error) {
+			console.error(
+				`[Task#resolveFallbackHintApiConfiguration] Failed to resolve profile ${fallbackProfileName}:`,
+				error,
+			)
+			return null
+		}
+	}
+
+	/** Invalidate the system prompt cache (e.g. after mode changes or settings updates). */
+	public invalidateSystemPromptCache(): void {
+		this._systemPromptCache = undefined
+		this._systemPromptCacheKey = undefined
 	}
 
 	private getCurrentProfileId(state: any): string {
@@ -4196,7 +4329,19 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// For API only: merge consecutive user messages (excludes summary messages per
 		// mergeConsecutiveApiMessages implementation) without mutating stored history.
 		const mergedForApi = mergeConsecutiveApiMessages(messagesSinceLastSummary, { roles: ["user"] })
-		const messagesWithoutImages = maybeRemoveImageBlocks(mergedForApi, this.api)
+		// optA: strip environment_details from old user messages to avoid re-sending stale context
+		const mergedWithEnvTrimmed = DEFAULT_OPT_CONFIG.trimOldEnvDetails
+			? trimOldEnvironmentDetails(mergedForApi as ApiMessage[], {
+					keepRecentRounds: DEFAULT_OPT_CONFIG.keepRecentRounds,
+				})
+			: mergedForApi
+		// opt2: strip old reasoning content for non-Anthropic providers to save tokens
+		const mergedForApiOpt = DEFAULT_OPT_CONFIG.trimOldReasoning
+			? trimReasoningHistory(mergedWithEnvTrimmed as ApiMessage[], this.apiConfiguration.apiProvider ?? "", {
+					keepRecentRounds: DEFAULT_OPT_CONFIG.keepRecentRounds,
+				})
+			: mergedWithEnvTrimmed
+		const messagesWithoutImages = maybeRemoveImageBlocks(mergedForApiOpt, this.api)
 		const cleanConversationHistory = this.buildCleanConversationHistory(messagesWithoutImages as ApiMessage[])
 
 		// Check auto-approval limits
@@ -4249,6 +4394,14 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			allowedFunctionNames = toolsResult.allowedFunctionNames
 		}
 
+		// opt5: slim MCP tool descriptions for unused tools when the feature is enabled
+		if (DEFAULT_OPT_CONFIG.slimMcpToolDescriptions && allTools.length > 0) {
+			const usedToolNames = new Set(Object.keys(this.toolUsage))
+			allTools = slimMcpToolDefinitions(allTools, usedToolNames, {
+				maxDescriptionLength: DEFAULT_OPT_CONFIG.maxMcpDescriptionLength,
+			})
+		}
+
 		const shouldIncludeTools = allTools.length > 0
 
 		const metadata: ApiHandlerCreateMessageMetadata = {
@@ -4275,6 +4428,20 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		this.skipPrevResponseIdOnce = false
 
 		// The provider accepts reasoning items alongside standard messages; cast to the expected parameter type.
+		await logLlmCall(this.cwd, {
+			timestamp: new Date().toISOString(),
+			taskId: this.taskId,
+			provider: this.apiConfiguration.apiProvider ?? "anthropic",
+			modelId: this.api.getModel().id,
+			payload: {
+				systemPrompt,
+				messages: cleanConversationHistory,
+				metadata,
+			},
+		}).catch((error) => {
+			console.warn(`[Task#${this.taskId}.${this.instanceId}] Failed to write LLM call log:`, error)
+		})
+
 		const stream = this.api.createMessage(
 			systemPrompt,
 			cleanConversationHistory as unknown as Anthropic.Messages.MessageParam[],
@@ -4467,9 +4634,17 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			summary?: any[]
 		}
 
+		// opt7: compact tool blocks in old rounds to save tokens (in-memory only, does not touch disk)
+		const compactedMessages = DEFAULT_OPT_CONFIG.compactOldToolBlocks
+			? compactOldToolBlocks(messages, {
+					keepRecentRounds: DEFAULT_OPT_CONFIG.keepRecentRounds,
+					maxResultChars: DEFAULT_OPT_CONFIG.maxOldRoundResultChars,
+				})
+			: messages
+
 		const cleanConversationHistory: (Anthropic.Messages.MessageParam | ReasoningItemForRequest)[] = []
 
-		for (const msg of messages) {
+		for (const msg of compactedMessages) {
 			// Standalone reasoning: send encrypted, skip plain text
 			if (msg.type === "reasoning") {
 				if (msg.encrypted_content) {

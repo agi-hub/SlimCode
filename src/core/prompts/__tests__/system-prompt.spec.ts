@@ -480,7 +480,7 @@ describe("SYSTEM_PROMPT", () => {
 			false,
 			undefined, // mcpHub
 			undefined, // diffStrategy
-			defaultModeSlug, // mode
+			"architect" as Mode, // mode (architect instructions reference update_todo_list)
 			undefined, // customModePrompts
 			undefined, // customModes
 			undefined, // globalCustomInstructions
@@ -508,7 +508,7 @@ describe("SYSTEM_PROMPT", () => {
 			false,
 			undefined, // mcpHub
 			undefined, // diffStrategy
-			defaultModeSlug, // mode
+			"architect" as Mode, // mode (architect instructions reference update_todo_list)
 			undefined, // customModePrompts
 			undefined, // customModes
 			undefined, // globalCustomInstructions

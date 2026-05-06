@@ -8,6 +8,10 @@ import { getGitSha, copyPaths, copyLocales, copyWasms, generatePackageJson } fro
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
+/** Same as `src/esbuild.mjs` — must run before bundled code on Node 18 extension hosts. */
+const STREAM_HIGH_WATER_MARK_POLYFILL_BANNER = `;(()=>{const p=m=>{try{if(!m||typeof m!=="object")return;if(typeof m.getDefaultHighWaterMark!=="function")m.getDefaultHighWaterMark=function(o){return o?16:65536};if(typeof m.setDefaultHighWaterMark!=="function")m.setDefaultHighWaterMark=function(){}}catch(e){}};try{p(require("stream"))}catch(e){}try{p(require("node:stream"))}catch(e){}try{p(require("readable-stream"))}catch(e){}})();
+`
+
 async function main() {
 	const name = "extension-nightly"
 	const production = process.argv.includes("--production")
@@ -88,7 +92,7 @@ async function main() {
 					const generatedPackageJson = generatePackageJson({
 						packageJson,
 						overrideJson,
-						substitution: ["roo-cline", "roo-code-nightly"],
+						substitution: ["SlimCode", "roo-code-nightly"],
 					})
 
 					fs.writeFileSync(path.join(buildDir, "package.json"), JSON.stringify(generatedPackageJson, null, 2))
@@ -142,6 +146,7 @@ async function main() {
 		plugins,
 		entryPoints: [path.join(srcDir, "extension.ts")],
 		outfile: path.join(distDir, "extension.js"),
+		banner: { js: STREAM_HIGH_WATER_MARK_POLYFILL_BANNER },
 		external: ["vscode"],
 	}
 
@@ -152,6 +157,7 @@ async function main() {
 		...buildOptions,
 		entryPoints: [path.join(srcDir, "workers", "countTokens.ts")],
 		outdir: path.join(distDir, "workers"),
+		banner: { js: STREAM_HIGH_WATER_MARK_POLYFILL_BANNER },
 	}
 
 	const [extensionBuildContext, workerBuildContext] = await Promise.all([

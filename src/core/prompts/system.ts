@@ -55,6 +55,7 @@ async function generatePrompt(
 	todoList?: TodoItem[],
 	modelId?: string,
 	skillsManager?: SkillsManager,
+	taskDescription?: string,
 ): Promise<string> {
 	if (!context) {
 		throw new Error("Extension context is required for generating system prompt")
@@ -76,7 +77,7 @@ async function generatePrompt(
 
 	const [modesSection, skillsSection] = await Promise.all([
 		getModesSection(context),
-		getSkillsSection(skillsManager, mode as string),
+		getSkillsSection(skillsManager, mode as string, taskDescription),
 	])
 
 	// Tools catalog is not included in the system prompt.
@@ -126,6 +127,7 @@ export const SYSTEM_PROMPT = async (
 	todoList?: TodoItem[],
 	modelId?: string,
 	skillsManager?: SkillsManager,
+	taskDescription?: string,
 ): Promise<string> => {
 	if (!context) {
 		throw new Error("Extension context is required for generating system prompt")
@@ -154,5 +156,6 @@ export const SYSTEM_PROMPT = async (
 		todoList,
 		modelId,
 		skillsManager,
+		taskDescription,
 	)
 }

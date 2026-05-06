@@ -3,6 +3,7 @@ import { VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 import { AlertTriangle } from "lucide-react"
 
 import type { ProviderSettingsEntry, OrganizationAllowList } from "@roo-code/types"
+import { getOrganizationProviderAllowEntry } from "@roo-code/types"
 
 import { useAppTranslation } from "@/i18n/TranslationContext"
 import {
@@ -56,7 +57,7 @@ const ApiConfigManager = ({
 		const provider = profile.apiProvider
 		if (!provider) return true
 
-		const providerConfig = organizationAllowList.providers[provider]
+		const providerConfig = getOrganizationProviderAllowEntry(organizationAllowList, provider)
 		if (!providerConfig) {
 			return false
 		}

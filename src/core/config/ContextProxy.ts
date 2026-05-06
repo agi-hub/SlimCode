@@ -44,6 +44,11 @@ export class ContextProxy {
 	private secretCache: SecretState
 	private _isInitialized = false
 
+	/** Single SecretStorage.get timeout — avoids infinite "Activating..." when OS keychain blocks. */
+	private static readonly SECRET_GET_PER_KEY_MS = 8000
+	/** Total wall time budget for preloading all secrets during activation. */
+	private static readonly SECRET_PRELOAD_TOTAL_BUDGET_MS = 90_000
+
 	constructor(context: vscode.ExtensionContext) {
 		this.originalContext = context
 		this.stateCache = {}
@@ -65,28 +70,40 @@ export class ContextProxy {
 			}
 		}
 
-		const promises = [
-			...SECRET_STATE_KEYS.map(async (key) => {
-				try {
-					this.secretCache[key] = await this.originalContext.secrets.get(key)
-				} catch (error) {
-					logger.error(
-						`Error loading secret ${key}: ${error instanceof Error ? error.message : String(error)}`,
-					)
-				}
-			}),
-			...GLOBAL_SECRET_KEYS.map(async (key) => {
-				try {
-					this.secretCache[key] = await this.originalContext.secrets.get(key)
-				} catch (error) {
-					logger.error(
-						`Error loading global secret ${key}: ${error instanceof Error ? error.message : String(error)}`,
-					)
-				}
-			}),
-		]
+		// Read secrets serially to avoid flooding the system keychain with
+		// concurrent requests, which can cause hangs on older VSCode/Electron versions.
+		// Each call is also time-bounded: on some Windows/macOS setups SecretStorage.get()
+		// may never resolve, which leaves the extension stuck in "Activating..." forever.
+		const secretLoadDeadline = Date.now() + ContextProxy.SECRET_PRELOAD_TOTAL_BUDGET_MS
+		for (const key of SECRET_STATE_KEYS) {
+			if (Date.now() > secretLoadDeadline) {
+				console.warn(
+					`[Roo Code][ContextProxy] Secret preload stopped: ${ContextProxy.SECRET_PRELOAD_TOTAL_BUDGET_MS}ms total budget exhausted (remaining keys skipped).`,
+				)
+				break
+			}
+			try {
+				this.secretCache[key] = await this.getSecretWithTimeout(key, secretLoadDeadline)
+			} catch (error) {
+				logger.error(`Error loading secret ${key}: ${error instanceof Error ? error.message : String(error)}`)
+			}
+		}
 
-		await Promise.all(promises)
+		for (const key of GLOBAL_SECRET_KEYS) {
+			if (Date.now() > secretLoadDeadline) {
+				console.warn(
+					`[Roo Code][ContextProxy] Global secret preload skipped: total secret budget already used.`,
+				)
+				break
+			}
+			try {
+				this.secretCache[key] = await this.getSecretWithTimeout(key, secretLoadDeadline)
+			} catch (error) {
+				logger.error(
+					`Error loading global secret ${key}: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+		}
 
 		// Migration: Check for old nested image generation settings and migrate them
 		await this.migrateImageGenerationSettings()
@@ -101,6 +118,37 @@ export class ContextProxy {
 		await this.migrateOldDefaultCondensingPrompt()
 
 		this._isInitialized = true
+	}
+
+	/**
+	 * Bounded wait for {@link vscode.SecretStorage.get}. On some hosts the promise never settles
+	 * (credential UI blocked, policy, broken provider), which would block extension activation forever.
+	 */
+	private async getSecretWithTimeout(key: string, absoluteDeadlineMs: number): Promise<string | undefined> {
+		const timeLeft = absoluteDeadlineMs - Date.now()
+		if (timeLeft <= 0) {
+			return undefined
+		}
+		const perKeyCap = Math.min(ContextProxy.SECRET_GET_PER_KEY_MS, timeLeft)
+		try {
+			const raced = await Promise.race([
+				this.originalContext.secrets.get(key).then((v) => ({ kind: "value" as const, v })),
+				new Promise<{ kind: "timeout" }>((resolve) =>
+					setTimeout(() => resolve({ kind: "timeout" }), perKeyCap),
+				),
+			])
+			if (raced.kind === "timeout") {
+				console.warn(
+					`[Roo Code][ContextProxy] SecretStorage.get("${key}") exceeded ${perKeyCap}ms — continuing without it. ` +
+						`If activation was stuck, check OS credential / keychain access for VS Code.`,
+				)
+				return undefined
+			}
+			return raced.v
+		} catch (error) {
+			logger.error(`Error loading secret ${key}: ${error instanceof Error ? error.message : String(error)}`)
+			return undefined
+		}
 	}
 
 	/**

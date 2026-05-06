@@ -168,6 +168,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		experiments,
 		maxOpenTabsContext,
 		maxWorkspaceFiles,
+		workspaceRecursiveFileListInEnvironment,
 		mcpEnabled,
 		soundEnabled,
 		ttsEnabled,
@@ -203,6 +204,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		includeCurrentTime,
 		includeCurrentCost,
 		maxGitStatusFiles,
+		simpleReply,
 	} = cachedState
 
 	const apiConfiguration = useMemo(() => cachedState.apiConfiguration ?? {}, [cachedState.apiConfiguration])
@@ -396,10 +398,11 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 					terminalZshOhMy,
 					terminalZshP10k,
 					terminalZdotdir,
-					terminalOutputPreviewSize: terminalOutputPreviewSize ?? "medium",
+					terminalOutputPreviewSize: terminalOutputPreviewSize ?? "small",
 					mcpEnabled,
-					maxOpenTabsContext: Math.min(Math.max(0, maxOpenTabsContext ?? 20), 500),
-					maxWorkspaceFiles: Math.min(Math.max(0, maxWorkspaceFiles ?? 200), 500),
+					maxOpenTabsContext: Math.min(Math.max(0, maxOpenTabsContext ?? 0), 500),
+					maxWorkspaceFiles: Math.min(Math.max(0, maxWorkspaceFiles ?? 0), 500),
+					workspaceRecursiveFileListInEnvironment: workspaceRecursiveFileListInEnvironment ?? false,
 					showRooIgnoredFiles: showRooIgnoredFiles ?? true,
 					enableSubfolderRules: enableSubfolderRules ?? false,
 					maxImageFileSize: maxImageFileSize ?? 5,
@@ -413,6 +416,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 					includeTaskHistoryInEnhance: includeTaskHistoryInEnhance ?? true,
 					reasoningBlockCollapsed: reasoningBlockCollapsed ?? true,
 					enterBehavior: enterBehavior ?? "send",
+					simpleReply: simpleReply !== false,
 					includeCurrentTime: includeCurrentTime ?? true,
 					includeCurrentCost: includeCurrentCost ?? true,
 					maxGitStatusFiles: maxGitStatusFiles ?? 0,
@@ -609,6 +613,15 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 	const renderTab = isIndexing ? sectionNames[indexingTabIndex] : activeTab
 
 	// Handle search navigation - switch to the correct tab and scroll to the element
+	const buildIdentification = useMemo(() => {
+		const version = process.env.PKG_VERSION ?? "?"
+		const sha = process.env.PKG_SHA
+		const shortSha = typeof sha === "string" && sha.length >= 7 ? sha.slice(0, 7) : ""
+		return shortSha
+			? t("settings:header.buildStampWithSha", { version, sha: shortSha })
+			: t("settings:header.buildStamp", { version })
+	}, [t])
+
 	const handleSearchNavigate = useCallback(
 		(section: SectionName, settingId: string) => {
 			// Switch to the correct tab
@@ -635,6 +648,12 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 
 	return (
 		<Tab>
+			<div
+				className="px-3 py-1 text-[10px] leading-tight font-mono text-vscode-descriptionForeground border-b border-vscode-widget-border shrink-0"
+				data-testid="settings-build-stamp"
+				title="Build stamp (webview bundle + extension version). If this line is missing or outdated, rebuild or reinstall the VSIX.">
+				{buildIdentification}
+			</div>
 			<TabHeader className="flex justify-between items-center gap-2">
 				<div className="flex items-center gap-2 grow">
 					<StandardTooltip content={t("settings:header.doneButtonTooltip")}>
@@ -832,7 +851,10 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 								autoCondenseContextPercent={autoCondenseContextPercent}
 								listApiConfigMeta={listApiConfigMeta ?? []}
 								maxOpenTabsContext={maxOpenTabsContext}
-								maxWorkspaceFiles={maxWorkspaceFiles ?? 200}
+								maxWorkspaceFiles={maxWorkspaceFiles ?? 0}
+								workspaceRecursiveFileListInEnvironment={
+									workspaceRecursiveFileListInEnvironment ?? false
+								}
 								showRooIgnoredFiles={showRooIgnoredFiles}
 								enableSubfolderRules={enableSubfolderRules}
 								maxImageFileSize={maxImageFileSize}
@@ -892,6 +914,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 							<UISettings
 								reasoningBlockCollapsed={reasoningBlockCollapsed ?? true}
 								enterBehavior={enterBehavior ?? "send"}
+								simpleReply={simpleReply !== false}
 								setCachedStateField={setCachedStateField}
 							/>
 						)}
@@ -916,7 +939,10 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 
 						{/* Language Section */}
 						{renderTab === "language" && (
-							<LanguageSettings language={language || "en"} setCachedStateField={setCachedStateField} />
+							<LanguageSettings
+								language={language || "zh-CN"}
+								setCachedStateField={setCachedStateField}
+							/>
 						)}
 
 						{/* About Section */}

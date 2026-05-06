@@ -293,6 +293,7 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
 } as const
 
 // Define available tool groups.
+/*
 export const TOOL_GROUPS: Record<ToolGroup, ToolGroupConfig> = {
 	read: {
 		tools: ["read_file", "search_files", "list_files", "codebase_search"],
@@ -312,15 +313,37 @@ export const TOOL_GROUPS: Record<ToolGroup, ToolGroupConfig> = {
 		alwaysAvailable: true,
 	},
 }
+*/
+
+export const TOOL_GROUPS: Record<ToolGroup, ToolGroupConfig> = {
+	read: {
+		tools: ["read_file"],
+	},
+	edit: {
+		tools: ["apply_diff", "write_to_file", "generate_image"],
+		customTools: ["edit", "search_replace", "edit_file", "apply_patch"],
+	},
+	command: {
+		tools: ["execute_command"],
+	},
+	mcp: {
+		tools: ["use_mcp_tool", "access_mcp_resource"],
+	},
+	modes: {
+		tools: [],
+		alwaysAvailable: true,
+	},
+}
+
 
 // Tools that are always available to all modes.
 export const ALWAYS_AVAILABLE_TOOLS: ToolName[] = [
-	"ask_followup_question",
+	//"ask_followup_question",
 	"attempt_completion",
-	"switch_mode",
-	"new_task",
+	//"switch_mode",
+	//"new_task",
 	"update_todo_list",
-	"run_slash_command",
+	//"run_slash_command",
 	"skill",
 ] as const
 

@@ -588,6 +588,34 @@ describe("reasoning.ts", () => {
 
 			expect(result).toBeUndefined()
 		})
+
+		it("should send minimal reasoning_effort when user disabled reasoning but model supports effort (explicit API off)", () => {
+			const modelWithCap: ModelInfo = {
+				...baseModel,
+				supportsReasoningEffort: ["low", "medium", "high"],
+			}
+
+			const options = {
+				...baseOptions,
+				model: modelWithCap,
+				settings: { enableReasoningEffort: false },
+				reasoningEffort: undefined,
+			}
+
+			expect(getOpenAiReasoning(options)).toEqual({ reasoning_effort: "minimal" })
+		})
+
+		it("should send minimal reasoning_effort when disabled and model id looks like a reasoning model", () => {
+			const options = {
+				...baseOptions,
+				model: baseModel,
+				modelId: "gpt-5-nano-2025-08-07",
+				settings: { enableReasoningEffort: false },
+				reasoningEffort: undefined,
+			}
+
+			expect(getOpenAiReasoning(options)).toEqual({ reasoning_effort: "minimal" })
+		})
 	})
 
 	describe("Gemini reasoning (effort models)", () => {

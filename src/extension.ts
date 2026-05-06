@@ -1,3 +1,4 @@
+import "./polyfills/nodeStreamHighWaterMark"
 import * as vscode from "vscode"
 import * as dotenvx from "@dotenvx/dotenvx"
 import * as fs from "fs"
@@ -27,7 +28,7 @@ import { createOutputChannelLogger, createDualLogger } from "./utils/outputChann
 import { initializeNetworkProxy } from "./utils/networkProxy"
 
 import { Package } from "./shared/package"
-import { formatLanguage } from "./shared/language"
+import { CLOUD_FEATURES_ENABLED } from "./shared/cloud"
 import { ContextProxy } from "./core/config/ContextProxy"
 import { ClineProvider } from "./core/webview/ClineProvider"
 import { DIFF_VIEW_URI_SCHEME } from "./integrations/editor/DiffViewProvider"
@@ -100,7 +101,7 @@ async function checkWorktreeAutoOpen(
 			// Open the Roo Code sidebar with a slight delay to ensure UI is ready
 			setTimeout(async () => {
 				try {
-					await vscode.commands.executeCommand("roo-cline.plusButtonClicked")
+					await vscode.commands.executeCommand("SlimCode.plusButtonClicked")
 				} catch (error) {
 					outputChannel.appendLine(
 						`[Worktree] Error auto-opening sidebar: ${error instanceof Error ? error.message : String(error)}`,
@@ -150,7 +151,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	const mdmService = await MdmService.createInstance(cloudLogger)
 
 	// Initialize i18n for internationalization support.
-	initializeI18n(context.globalState.get("language") ?? formatLanguage(vscode.env.language))
+	initializeI18n(context.globalState.get("language") ?? "zh-CN")
 
 	// Initialize terminal shell execution handlers.
 	TerminalRegistry.initialize()
@@ -159,7 +160,8 @@ export async function activate(context: vscode.ExtensionContext) {
 	openAiCodexOAuthManager.initialize(context, (message) => outputChannel.appendLine(message))
 
 	// Get default commands from configuration.
-	const defaultCommands = vscode.workspace.getConfiguration(Package.name).get<string[]>("allowedCommands") || []
+	const configAllowedCommands = vscode.workspace.getConfiguration(Package.name).get<string[]>("allowedCommands") || []
+	const defaultCommands = configAllowedCommands.length > 0 ? configAllowedCommands : ["*"]
 
 	// Initialize global state if not already set.
 	if (!context.globalState.get("allowedCommands")) {
@@ -262,32 +264,43 @@ export async function activate(context: vscode.ExtensionContext) {
 		postStateListener()
 	}
 
-	cloudService = await CloudService.createInstance(context, cloudLogger, {
-		"auth-state-changed": authStateChangedHandler,
-		"settings-updated": settingsUpdatedHandler,
-		"user-info": userInfoHandler,
-	})
+	// Initialize cloud service in background to avoid blocking extension activation.
+	if (CLOUD_FEATURES_ENABLED) {
+		void (async () => {
+			try {
+				cloudService = await CloudService.createInstance(context, cloudLogger, {
+					"auth-state-changed": authStateChangedHandler,
+					"settings-updated": settingsUpdatedHandler,
+					"user-info": userInfoHandler,
+				})
 
-	try {
-		if (cloudService.telemetryClient) {
-			TelemetryService.instance.register(cloudService.telemetryClient)
-		}
-	} catch (error) {
-		outputChannel.appendLine(
-			`[CloudService] Failed to register TelemetryClient: ${error instanceof Error ? error.message : String(error)}`,
-		)
-	}
+				try {
+					if (cloudService.telemetryClient) {
+						TelemetryService.instance.register(cloudService.telemetryClient)
+					}
+				} catch (error) {
+					outputChannel.appendLine(
+						`[CloudService] Failed to register TelemetryClient: ${error instanceof Error ? error.message : String(error)}`,
+					)
+				}
 
-	// Add to subscriptions for proper cleanup on deactivate.
-	context.subscriptions.push(cloudService)
+				// Add to subscriptions for proper cleanup on deactivate.
+				context.subscriptions.push(cloudService)
 
-	// Trigger initial cloud profile sync now that CloudService is ready.
-	try {
-		await provider.initializeCloudProfileSyncWhenReady()
-	} catch (error) {
-		outputChannel.appendLine(
-			`[CloudService] Failed to initialize cloud profile sync: ${error instanceof Error ? error.message : String(error)}`,
-		)
+				// Trigger initial cloud profile sync now that CloudService is ready.
+				try {
+					await provider.initializeCloudProfileSyncWhenReady()
+				} catch (error) {
+					outputChannel.appendLine(
+						`[CloudService] Failed to initialize cloud profile sync: ${error instanceof Error ? error.message : String(error)}`,
+					)
+				}
+			} catch (error) {
+				outputChannel.appendLine(
+					`[CloudService] Background initialization failed: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+		})()
 	}
 
 	// Finish initializing the provider.

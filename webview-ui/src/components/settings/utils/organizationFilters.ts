@@ -1,4 +1,9 @@
-import type { ProviderName, ModelInfo, OrganizationAllowList } from "@roo-code/types"
+import {
+	type ProviderName,
+	type ModelInfo,
+	type OrganizationAllowList,
+	getOrganizationProviderAllowEntry,
+} from "@roo-code/types"
 
 export const filterProviders = (
 	providers: Array<{ value: string; label: string }>,
@@ -9,7 +14,7 @@ export const filterProviders = (
 	}
 
 	return providers.filter((provider) => {
-		const providerConfig = organizationAllowList.providers[provider.value]
+		const providerConfig = getOrganizationProviderAllowEntry(organizationAllowList, provider.value)
 		if (!providerConfig) {
 			return false
 		}
@@ -31,7 +36,7 @@ export const filterModels = (
 		return {}
 	}
 
-	const providerConfig = organizationAllowList.providers[providerId]
+	const providerConfig = getOrganizationProviderAllowEntry(organizationAllowList, providerId)
 	if (!providerConfig) {
 		return {}
 	}

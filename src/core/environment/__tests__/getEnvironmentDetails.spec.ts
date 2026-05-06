@@ -74,6 +74,7 @@ describe("getEnvironmentDetails", () => {
 		mockState = {
 			terminalOutputLineLimit: 100,
 			maxWorkspaceFiles: 50,
+			workspaceRecursiveFileListInEnvironment: true,
 			maxOpenTabsContext: 10,
 			mode: "code",
 			customModes: [],
@@ -140,33 +141,33 @@ describe("getEnvironmentDetails", () => {
 		vi.mocked(delay).mockResolvedValue(undefined)
 	})
 
-	it("should return basic environment details", async () => {
+	it("should return minimal environment details when includeFileDetails is false (follow-up rounds)", async () => {
 		const result = await getEnvironmentDetails(mockCline as Task)
 
 		expect(result).toContain("<environment_details>")
 		expect(result).toContain("</environment_details>")
-		// Visible Files and Open Tabs headers only appear when there's content
-		expect(result).toContain("# Current Time")
+		expect(result).not.toContain("# VSCode Visible Files")
+		expect(result).not.toContain("# VSCode Open Tabs")
+		expect(result).not.toContain("# Current Time")
+		expect(result).not.toContain("# Current Cost")
+		expect(result).not.toContain("# Current Mode")
+		expect(result).not.toContain("<model>")
 		expect(result).not.toContain("# Git Status") // Git status is disabled by default (maxGitStatusFiles = 0)
-		expect(result).toContain("# Current Cost")
-		expect(result).toContain("# Current Mode")
-		expect(result).toContain("<model>test-model</model>")
 
 		expect(mockProvider.getState).toHaveBeenCalled()
 
-		expect(getFullModeDetails).toHaveBeenCalledWith("code", [], undefined, {
-			cwd: mockCwd,
-			globalCustomInstructions: "test instructions",
-			language: "en",
-		})
-
-		expect(getApiMetrics).toHaveBeenCalledWith(mockCline.clineMessages)
+		expect(getFullModeDetails).not.toHaveBeenCalled()
+		expect(getApiMetrics).not.toHaveBeenCalled()
 	})
 
 	it("should include file details when includeFileDetails is true", async () => {
 		const result = await getEnvironmentDetails(mockCline as Task, true)
 		expect(result).toContain("# Current Workspace Directory")
 		expect(result).toContain("Files")
+		expect(result).toContain("# Current Time")
+		expect(result).toContain("# Current Cost")
+		expect(result).toContain("# Current Mode")
+		expect(result).toContain("<model>test-model</model>")
 
 		expect(listFiles).toHaveBeenCalledWith(mockCwd, true, 50)
 
@@ -177,12 +178,33 @@ describe("getEnvironmentDetails", () => {
 			mockCline.rooIgnoreController,
 			false,
 		)
+
+		expect(getFullModeDetails).toHaveBeenCalledWith("code", [], undefined, {
+			cwd: mockCwd,
+			globalCustomInstructions: "test instructions",
+			language: "en",
+		})
+
+		expect(getApiMetrics).toHaveBeenCalledWith(mockCline.clineMessages)
+	})
+
+	it("should list workspace files non-recursively when workspaceRecursiveFileListInEnvironment is false", async () => {
+		mockProvider.getState.mockResolvedValue({
+			...mockState,
+			workspaceRecursiveFileListInEnvironment: false,
+		})
+
+		await getEnvironmentDetails(mockCline as Task, true)
+
+		expect(listFiles).toHaveBeenCalledWith(mockCwd, false, 50)
 	})
 
 	it("should not include file details when includeFileDetails is false", async () => {
-		await getEnvironmentDetails(mockCline as Task, false)
+		const result = await getEnvironmentDetails(mockCline as Task, false)
 		expect(listFiles).not.toHaveBeenCalled()
 		expect(formatResponse.formatFilesList).not.toHaveBeenCalled()
+		expect(result).not.toContain("# Current Workspace Directory")
+		expect(result).not.toContain("# Current Mode")
 	})
 
 	it("should handle desktop directory specially", async () => {
@@ -382,17 +404,18 @@ describe("getEnvironmentDetails", () => {
 		const result = await getEnvironmentDetails(cline as Task)
 		expect(result).toContain("REMINDERS")
 	})
-	it("should include git status when maxGitStatusFiles > 0", async () => {
+	it("should include git status when maxGitStatusFiles > 0 (even on follow-up rounds)", async () => {
 		;(getGitStatus as Mock).mockResolvedValue("## main\nM  file1.ts")
 		mockProvider.getState.mockResolvedValue({
 			...mockState,
 			maxGitStatusFiles: 10,
 		})
 
-		const result = await getEnvironmentDetails(mockCline as Task)
+		const result = await getEnvironmentDetails(mockCline as Task, false)
 
 		expect(result).toContain("# Git Status")
 		expect(result).toContain("## main")
+		expect(result).not.toContain("# Current Mode")
 		expect(getGitStatus).toHaveBeenCalledWith(mockCwd, 10)
 	})
 

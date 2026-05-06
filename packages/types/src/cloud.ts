@@ -196,6 +196,23 @@ export const ORGANIZATION_ALLOW_ALL: OrganizationAllowList = {
 	providers: {},
 } as const
 
+/**
+ * Resolves an org allow-list entry for a provider.
+ */
+export function getOrganizationProviderAllowEntry(
+	allowList: OrganizationAllowList,
+	providerId: string,
+): { allowAll: boolean; models?: string[] } | undefined {
+	if (allowList.allowAll) {
+		return undefined
+	}
+	const entry = allowList.providers[providerId]
+	if (entry) {
+		return entry
+	}
+	return undefined
+}
+
 export const ORGANIZATION_DEFAULT: OrganizationSettings = {
 	version: 0,
 	cloudSettings: {

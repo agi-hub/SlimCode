@@ -5,8 +5,6 @@ import * as vscode from "vscode"
 import pWaitFor from "p-wait-for"
 import delay from "delay"
 
-import type { ExperimentId } from "@roo-code/types"
-
 import { formatLanguage } from "../../shared/language"
 import { defaultModeSlug, getFullModeDetails } from "../../shared/modes"
 import { getApiMetrics } from "../../shared/getApiMetrics"
@@ -25,44 +23,54 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 
 	const clineProvider = cline.providerRef.deref()
 	const state = await clineProvider?.getState()
-	const { maxWorkspaceFiles = 200 } = state ?? {}
+	const {
+		maxWorkspaceFiles = 0,
+		workspaceRecursiveFileListInEnvironment = false,
+		includeCurrentTime = true,
+		includeCurrentCost = true,
+		maxGitStatusFiles = 0,
+	} = state ?? {}
 
-	// It could be useful for cline to know if the user went from one or no
-	// file to another between messages, so we always include this context.
-	const visibleFilePaths = vscode.window.visibleTextEditors
-		?.map((editor) => editor.document?.uri?.fsPath)
-		.filter(Boolean)
-		.map((absolutePath) => path.relative(cline.cwd, absolutePath))
-		.slice(0, maxWorkspaceFiles)
+	// Full editor/workspace snapshot (visible files, open tabs, time, cost, mode, file tree)
+	// is only included on the first API round per user turn (includeFileDetails === true).
+	// Follow-up rounds omit those static sections to save tokens; terminals, recently modified
+	// files, git status, and reminders still update each round.
+	if (includeFileDetails) {
+		// It could be useful for cline to know if the user went from one or no
+		// file to another between messages, so we include this on the full snapshot.
+		const visibleFilePaths = vscode.window.visibleTextEditors
+			?.map((editor) => editor.document?.uri?.fsPath)
+			.filter(Boolean)
+			.map((absolutePath) => path.relative(cline.cwd, absolutePath))
+			.slice(0, maxWorkspaceFiles)
 
-	// Filter paths through rooIgnoreController
-	const allowedVisibleFiles = cline.rooIgnoreController
-		? cline.rooIgnoreController.filterPaths(visibleFilePaths)
-		: visibleFilePaths.map((p) => p.toPosix()).join("\n")
+		const allowedVisibleFiles = cline.rooIgnoreController
+			? cline.rooIgnoreController.filterPaths(visibleFilePaths)
+			: visibleFilePaths.map((p) => p.toPosix()).join("\n")
 
-	if (allowedVisibleFiles) {
-		details += "\n\n# VSCode Visible Files"
-		details += `\n${allowedVisibleFiles}`
-	}
+		if (allowedVisibleFiles) {
+			details += "\n\n# VSCode Visible Files"
+			details += `\n${allowedVisibleFiles}`
+		}
 
-	const { maxOpenTabsContext } = state ?? {}
-	const maxTabs = maxOpenTabsContext ?? 20
-	const openTabPaths = vscode.window.tabGroups.all
-		.flatMap((group) => group.tabs)
-		.filter((tab) => tab.input instanceof vscode.TabInputText)
-		.map((tab) => (tab.input as vscode.TabInputText).uri.fsPath)
-		.filter(Boolean)
-		.map((absolutePath) => path.relative(cline.cwd, absolutePath).toPosix())
-		.slice(0, maxTabs)
+		const { maxOpenTabsContext } = state ?? {}
+		const maxTabs = maxOpenTabsContext ?? 0
+		const openTabPaths = vscode.window.tabGroups.all
+			.flatMap((group) => group.tabs)
+			.filter((tab) => tab.input instanceof vscode.TabInputText)
+			.map((tab) => (tab.input as vscode.TabInputText).uri.fsPath)
+			.filter(Boolean)
+			.map((absolutePath) => path.relative(cline.cwd, absolutePath).toPosix())
+			.slice(0, maxTabs)
 
-	// Filter paths through rooIgnoreController
-	const allowedOpenTabs = cline.rooIgnoreController
-		? cline.rooIgnoreController.filterPaths(openTabPaths)
-		: openTabPaths.map((p) => p.toPosix()).join("\n")
+		const allowedOpenTabs = cline.rooIgnoreController
+			? cline.rooIgnoreController.filterPaths(openTabPaths)
+			: openTabPaths.map((p) => p.toPosix()).join("\n")
 
-	if (allowedOpenTabs) {
-		details += "\n\n# VSCode Open Tabs"
-		details += `\n${allowedOpenTabs}`
+		if (allowedOpenTabs) {
+			details += "\n\n# VSCode Open Tabs"
+			details += `\n${allowedOpenTabs}`
+		}
 	}
 
 	// Get task-specific and background terminals.
@@ -172,11 +180,7 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 		details += terminalDetails
 	}
 
-	// Get settings for time and cost display
-	const { includeCurrentTime = true, includeCurrentCost = true, maxGitStatusFiles = 0 } = state ?? {}
-
-	// Add current time information with timezone (if enabled).
-	if (includeCurrentTime) {
+	if (includeFileDetails && includeCurrentTime) {
 		const now = new Date()
 
 		const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -187,7 +191,6 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 		details += `\n\n# Current Time\nCurrent time in ISO 8601 UTC format: ${now.toISOString()}\nUser time zone: ${timeZone}, UTC${timeZoneOffsetStr}`
 	}
 
-	// Add git status information (if enabled with maxGitStatusFiles > 0).
 	if (maxGitStatusFiles > 0) {
 		const gitStatus = await getGitStatus(cline.cwd, maxGitStatusFiles)
 		if (gitStatus) {
@@ -195,38 +198,35 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 		}
 	}
 
-	// Add context tokens information (if enabled).
-	if (includeCurrentCost) {
+	if (includeFileDetails && includeCurrentCost) {
 		const { totalCost } = getApiMetrics(cline.clineMessages)
 		details += `\n\n# Current Cost\n${totalCost !== null ? `$${totalCost.toFixed(2)}` : "(Not available)"}`
 	}
 
-	const { id: modelId } = cline.api.getModel()
-
-	// Add current mode and any mode-specific warnings.
-	const {
-		mode,
-		customModes,
-		customModePrompts,
-		experiments = {} as Record<ExperimentId, boolean>,
-		customInstructions: globalCustomInstructions,
-		language,
-	} = state ?? {}
-
-	const currentMode = mode ?? defaultModeSlug
-
-	const modeDetails = await getFullModeDetails(currentMode, customModes, customModePrompts, {
-		cwd: cline.cwd,
-		globalCustomInstructions,
-		language: language ?? formatLanguage(vscode.env.language),
-	})
-
-	details += `\n\n# Current Mode\n`
-	details += `<slug>${currentMode}</slug>\n`
-	details += `<name>${modeDetails.name}</name>\n`
-	details += `<model>${modelId}</model>\n`
-
 	if (includeFileDetails) {
+		const { id: modelId } = cline.api.getModel()
+
+		const {
+			mode,
+			customModes,
+			customModePrompts,
+			customInstructions: globalCustomInstructions,
+			language,
+		} = state ?? {}
+
+		const currentMode = mode ?? defaultModeSlug
+
+		const modeDetails = await getFullModeDetails(currentMode, customModes, customModePrompts, {
+			cwd: cline.cwd,
+			globalCustomInstructions,
+			language: language ?? formatLanguage(vscode.env.language),
+		})
+
+		details += `\n\n# Current Mode\n`
+		details += `<slug>${currentMode}</slug>\n`
+		details += `<name>${modeDetails.name}</name>\n`
+		details += `<model>${modelId}</model>\n`
+
 		details += `\n\n# Current Workspace Directory (${cline.cwd.toPosix()}) Files\n`
 		const isDesktop = arePathsEqual(cline.cwd, path.join(os.homedir(), "Desktop"))
 
@@ -235,13 +235,14 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 			// permission popup.
 			details += "(Desktop files not shown automatically. Use list_files to explore if needed.)"
 		} else {
-			const maxFiles = maxWorkspaceFiles ?? 200
+			const maxFiles = maxWorkspaceFiles ?? 0
 
 			// Early return for limit of 0
 			if (maxFiles === 0) {
 				details += "(Workspace files context disabled. Use list_files to explore if needed.)"
 			} else {
-				const [files, didHitLimit] = await listFiles(cline.cwd, true, maxFiles)
+				const listRecursive = workspaceRecursiveFileListInEnvironment === true
+				const [files, didHitLimit] = await listFiles(cline.cwd, listRecursive, maxFiles)
 				const { showRooIgnoredFiles = false } = state ?? {}
 
 				const result = formatResponse.formatFilesList(

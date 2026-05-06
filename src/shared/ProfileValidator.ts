@@ -1,4 +1,5 @@
 import type { ProviderSettings, OrganizationAllowList } from "@roo-code/types"
+import { getOrganizationProviderAllowEntry } from "@roo-code/types"
 
 export class ProfileValidator {
 	public static isProfileAllowed(profile: ProviderSettings, allowList: OrganizationAllowList): boolean {
@@ -17,7 +18,7 @@ export class ProfileValidator {
 		const modelId = this.getModelIdFromProfile(profile)
 
 		if (!modelId) {
-			return allowList.providers[profile.apiProvider]?.allowAll === true
+			return getOrganizationProviderAllowEntry(allowList, profile.apiProvider)?.allowAll === true
 		}
 
 		return this.isModelAllowed(profile.apiProvider, modelId, allowList)
@@ -28,7 +29,7 @@ export class ProfileValidator {
 			return true
 		}
 
-		return providerName in allowList.providers
+		return getOrganizationProviderAllowEntry(allowList, providerName) !== undefined
 	}
 
 	private static isModelAllowed(providerName: string, modelId: string, allowList: OrganizationAllowList): boolean {
@@ -36,7 +37,7 @@ export class ProfileValidator {
 			return true
 		}
 
-		const providerAllowList = allowList.providers[providerName]
+		const providerAllowList = getOrganizationProviderAllowEntry(allowList, providerName)
 
 		if (!providerAllowList) {
 			return false

@@ -17,7 +17,7 @@ export const LANGUAGES: Record<Language, string> = {
 	ko: "한국어",
 	nl: "Nederlands",
 	pl: "Polski",
-	"pt-BR": "Português",
+	"pt-BR": "Português (Brasil)",
 	ru: "Русский",
 	tr: "Türkçe",
 	vi: "Tiếng Việt",

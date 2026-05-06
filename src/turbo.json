@@ -4,6 +4,12 @@
 	"tasks": {
 		"bundle": {
 			"dependsOn": ["^build", "@roo-code/vscode-webview#build"],
+			"inputs": [
+				"$TURBO_DEFAULT$",
+				"../webview-ui/src/**",
+				"../webview-ui/index.html",
+				"../webview-ui/vite.config.ts"
+			],
 			"outputs": ["dist/**"]
 		},
 		"vsix": {

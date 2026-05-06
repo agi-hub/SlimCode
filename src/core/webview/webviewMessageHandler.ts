@@ -44,6 +44,7 @@ import { changeLanguage, t } from "../../i18n"
 import { Package } from "../../shared/package"
 import { type RouterName, toRouterName } from "../../shared/api"
 import { MessageEnhancer } from "./messageEnhancer"
+import { CLOUD_FEATURES_ENABLED } from "../../shared/cloud"
 
 import { CodeIndexManager } from "../../services/code-index/manager"
 import { checkExistKey } from "../../shared/checkExistApiConfig"
@@ -543,7 +544,9 @@ export const webviewMessageHandler = async (
 			provider.postStateToWebview()
 			provider.workspaceTracker?.initializeFilePaths() // Don't await.
 
-			getTheme().then((theme) => provider.postMessageToWebview({ type: "theme", text: JSON.stringify(theme) }))
+			getTheme(provider.contextProxy.extensionUri).then((theme) =>
+				provider.postMessageToWebview({ type: "theme", text: JSON.stringify(theme) }),
+			)
 
 			// If MCP Hub is already initialized, update the webview with
 			// current server list.
@@ -791,6 +794,11 @@ export const webviewMessageHandler = async (
 			}
 
 			try {
+				if (!CLOUD_FEATURES_ENABLED || !CloudService.hasInstance()) {
+					vscode.window.showErrorMessage("Cloud 功能已禁用")
+					break
+				}
+
 				const visibility = message.visibility || "organization"
 				const result = await CloudService.instance.shareTask(shareTaskId, visibility, clineMessages)
 
@@ -989,7 +997,9 @@ export const webviewMessageHandler = async (
 					},
 				},
 				{ key: "vercel-ai-gateway", options: { provider: "vercel-ai-gateway" } },
-				{
+			]
+			if (CLOUD_FEATURES_ENABLED) {
+				candidates.push({
 					key: "roo",
 					options: {
 						provider: "roo",
@@ -998,8 +1008,8 @@ export const webviewMessageHandler = async (
 							? CloudService.instance.authService?.getSessionToken()
 							: undefined,
 					},
-				},
-			]
+				})
+			}
 
 			// LiteLLM is conditional on baseUrl+apiKey
 			const litellmApiKey = apiConfiguration.litellmApiKey || message?.values?.litellmApiKey
@@ -1116,6 +1126,10 @@ export const webviewMessageHandler = async (
 		case "requestRooModels": {
 			// Specific handler for Roo models only - flushes cache to ensure fresh auth token is used
 			try {
+				if (!CLOUD_FEATURES_ENABLED) {
+					throw new Error("Cloud 功能已禁用")
+				}
+
 				const rooOptions = {
 					provider: "roo" as const,
 					baseUrl: process.env.ROO_CODE_PROVIDER_URL ?? "https://api.roocode.com/proxy",
@@ -1150,6 +1164,10 @@ export const webviewMessageHandler = async (
 			// Fetch Roo credit balance using CloudAPI
 			const requestId = message.requestId
 			try {
+				if (!CLOUD_FEATURES_ENABLED) {
+					throw new Error("Cloud 功能已禁用")
+				}
+
 				if (!CloudService.hasInstance() || !CloudService.instance.cloudAPI) {
 					throw new Error("Cloud service not available")
 				}
@@ -2331,10 +2349,18 @@ export const webviewMessageHandler = async (
 		}
 		case "cloudButtonClicked": {
 			// Navigate to the cloud tab.
+			if (!CLOUD_FEATURES_ENABLED) {
+				vscode.window.showInformationMessage("Cloud 功能已禁用")
+				break
+			}
 			provider.postMessageToWebview({ type: "action", action: "cloudButtonClicked" })
 			break
 		}
 		case "rooCloudSignIn": {
+			if (!CLOUD_FEATURES_ENABLED) {
+				vscode.window.showInformationMessage("Cloud 功能已禁用")
+				break
+			}
 			try {
 				TelemetryService.instance.captureEvent(TelemetryEventName.AUTHENTICATION_INITIATED)
 				// Use provider signup flow if useProviderSignup is explicitly true
@@ -2347,6 +2373,10 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "cloudLandingPageSignIn": {
+			if (!CLOUD_FEATURES_ENABLED) {
+				vscode.window.showInformationMessage("Cloud 功能已禁用")
+				break
+			}
 			try {
 				const landingPageSlug = message.text || "supernova"
 				TelemetryService.instance.captureEvent(TelemetryEventName.AUTHENTICATION_INITIATED)
@@ -2358,6 +2388,10 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "rooCloudSignOut": {
+			if (!CLOUD_FEATURES_ENABLED) {
+				vscode.window.showInformationMessage("Cloud 功能已禁用")
+				break
+			}
 			try {
 				await CloudService.instance.logout()
 				await provider.postStateToWebview()
@@ -2409,6 +2443,10 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "rooCloudManualUrl": {
+			if (!CLOUD_FEATURES_ENABLED) {
+				vscode.window.showInformationMessage("Cloud 功能已禁用")
+				break
+			}
 			try {
 				if (!message.text) {
 					vscode.window.showErrorMessage(t("common:errors.manual_url_empty"))
@@ -2457,6 +2495,15 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "switchOrganization": {
+			if (!CLOUD_FEATURES_ENABLED) {
+				await provider.postMessageToWebview({
+					type: "organizationSwitchResult",
+					success: false,
+					error: "Cloud 功能已禁用",
+					organizationId: message.organizationId ?? null,
+				})
+				break
+			}
 			try {
 				const organizationId = message.organizationId ?? null
 

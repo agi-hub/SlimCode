@@ -208,6 +208,34 @@ export class SkillsManager {
 		return Array.from(resolvedSkills.values())
 	}
 
+	getRelevantSkills(currentMode: string, taskDescription: string, maxSkills: number = 3): SkillMetadata[] {
+		const scoped = this.getSkillsForMode(currentMode)
+		if (scoped.length <= maxSkills) {
+			return scoped
+		}
+
+		const queryTokens = this.tokenizeForRelevance(taskDescription)
+		if (queryTokens.length === 0) {
+			return scoped.slice(0, maxSkills)
+		}
+
+		const scored = scoped
+			.map((skill) => {
+				const corpusTokens = this.tokenizeForRelevance(`${skill.name} ${skill.description}`)
+				const score = this.computeTokenOverlapScore(queryTokens, corpusTokens)
+				return { skill, score }
+			})
+			.sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name))
+
+		const selected = scored.slice(0, maxSkills)
+		const hasSignal = selected.some((entry) => entry.score > 0)
+		if (!hasSignal) {
+			return scoped.slice(0, maxSkills)
+		}
+
+		return selected.map((entry) => entry.skill)
+	}
+
 	/**
 	 * Check if a skill is available in the given mode.
 	 * - modeSlugs undefined or empty = available in all modes ("Any mode")
@@ -220,6 +248,27 @@ export class SkillsManager {
 		}
 		// Check if current mode is in the allowed modes
 		return skill.modeSlugs.includes(currentMode)
+	}
+
+	private tokenizeForRelevance(text: string): string[] {
+		return text
+			.toLowerCase()
+			.split(/[^a-z0-9_]+/g)
+			.filter((token) => token.length >= 3)
+	}
+
+	private computeTokenOverlapScore(queryTokens: string[], candidateTokens: string[]): number {
+		if (queryTokens.length === 0 || candidateTokens.length === 0) {
+			return 0
+		}
+		const candidateSet = new Set(candidateTokens)
+		let score = 0
+		for (const token of queryTokens) {
+			if (candidateSet.has(token)) {
+				score += 1
+			}
+		}
+		return score
 	}
 
 	/**

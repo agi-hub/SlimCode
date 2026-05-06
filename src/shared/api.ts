@@ -47,7 +47,11 @@ export const shouldUseReasoningBudget = ({
 }: {
 	model: ModelInfo
 	settings?: ProviderSettings
-}): boolean => !!model.requiredReasoningBudget || (!!model.supportsReasoningBudget && !!settings?.enableReasoningEffort)
+}): boolean => {
+	// Explicit off switch always wins, even for models that normally require a budget.
+	if (settings?.enableReasoningEffort === false) return false
+	return !!model.requiredReasoningBudget || (!!model.supportsReasoningBudget && !!settings?.enableReasoningEffort)
+}
 
 export const shouldUseReasoningEffort = ({
 	model,

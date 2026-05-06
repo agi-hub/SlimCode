@@ -215,15 +215,15 @@ export type CommandDecision = "auto_approve" | "auto_deny" | "ask_user"
  * to resolve conflicts between allowlist and denylist patterns.
  *
  * **Decision Logic:**
- * 1. **Dangerous Substitution Protection**: Commands with dangerous parameter expansions are never auto-approved
+ * 1. **Dangerous Substitution Protection**: By default, dangerous parameter expansions force `ask_user` (skipped when `options.fullAutoExecute` is true)
  * 2. **Command Parsing**: Split command chains (&&, ||, ;, |, &) into individual commands
  * 3. **Individual Validation**: For each sub-command, apply longest prefix match rule
- * 4. **Aggregation**: Combine decisions using "any denial blocks all" principle
+ * 4. **Aggregation**: Combine decisions using "any denial blocks all" principle; with `fullAutoExecute`, unmatched sub-commands no longer force `ask_user` unless denied
  *
  * **Return Values:**
- * - `"auto_approve"`: All sub-commands are explicitly allowed and no dangerous patterns detected
+ * - `"auto_approve"`: All sub-commands are allowed (or `fullAutoExecute` treats unknown segments as OK), and no deny match
  * - `"auto_deny"`: At least one sub-command is explicitly denied
- * - `"ask_user"`: Mixed or no matches found, requires user decision, or contains dangerous patterns
+ * - `"ask_user"`: Default path when prefixes do not match and `fullAutoExecute` is off, or dangerous patterns when `fullAutoExecute` is off
  *
  * **Examples:**
  * ```typescript
@@ -251,16 +251,30 @@ export type CommandDecision = "auto_approve" | "auto_deny" | "ask_user"
  * @param command - The full command string to validate
  * @param allowedCommands - List of allowed command prefixes
  * @param deniedCommands - Optional list of denied command prefixes
+ * @param options - When `alwaysAllowExecute` is enabled in settings, pass `fullAutoExecute: true` to skip
+ *   dangerous-pattern prompts and to approve despite unmatched sub-commands (e.g. subshells), unless denied.
  * @returns Decision indicating whether to approve, deny, or ask user
  */
+export type GetCommandDecisionOptions = {
+	/**
+	 * From "always allow execute" auto-approval: do not force ask_user for dangerous-looking patterns
+	 * or for sub-commands that do not match the allowlist (still respects denylist).
+	 */
+	fullAutoExecute?: boolean
+}
+
 export function getCommandDecision(
 	command: string,
 	allowedCommands: string[],
 	deniedCommands?: string[],
+	options?: GetCommandDecisionOptions,
 ): CommandDecision {
 	if (!command?.trim()) {
 		return "auto_approve"
 	}
+
+	const fullAutoExecute = options?.fullAutoExecute === true
+	const allowConfigured = (allowedCommands?.length ?? 0) > 0
 
 	// Parse into sub-commands (split by &&, ||, ;, |)
 	const subCommands = parseCommand(command)
@@ -278,13 +292,23 @@ export function getCommandDecision(
 		return "auto_deny"
 	}
 
-	// Require explicit user approval for dangerous patterns
-	if (containsDangerousSubstitution(command)) {
+	// Require explicit user approval for dangerous patterns (unless full auto-execute with a configured allowlist)
+	if (!(fullAutoExecute && allowConfigured) && containsDangerousSubstitution(command)) {
 		return "ask_user"
 	}
 
 	// If all sub-commands are approved, approve the whole command
 	if (decisions.every((decision) => decision === "auto_approve")) {
+		return "auto_approve"
+	}
+
+	// With "always allow execute", unmatched segments (e.g. subshell bodies) do not block,
+	// but only if the user configured at least one allow prefix (empty list stays strict).
+	if (
+		fullAutoExecute &&
+		allowConfigured &&
+		decisions.every((d) => d === "auto_approve" || d === "ask_user")
+	) {
 		return "auto_approve"
 	}
 

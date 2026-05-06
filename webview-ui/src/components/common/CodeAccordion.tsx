@@ -92,7 +92,7 @@ const CodeAccordion = ({
 								{progressStatus.icon && (
 									<span className={`codicon codicon-${progressStatus.icon} mr-1`} />
 								)}
-								<span className="mr-1 ml-auto text-vscode-descriptionForeground">
+								<span className="mr-1 ml-auto text-vscode-descriptionForeground whitespace-pre-line">
 									{progressStatus.text}
 								</span>
 							</>

@@ -162,7 +162,7 @@ export function getModelParams({
 		return {
 			format,
 			...params,
-			reasoning: getOpenAiReasoning({ model, reasoningBudget, reasoningEffort, settings }),
+			reasoning: getOpenAiReasoning({ model, modelId, reasoningBudget, reasoningEffort, settings }),
 			// Whether tools are included is determined by whether the caller provided tool definitions.
 		}
 	} else if (format === "gemini") {

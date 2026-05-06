@@ -31,6 +31,7 @@ type ContextManagementSettingsProps = HTMLAttributes<HTMLDivElement> & {
 	listApiConfigMeta: any[]
 	maxOpenTabsContext: number
 	maxWorkspaceFiles: number
+	workspaceRecursiveFileListInEnvironment: boolean
 	showRooIgnoredFiles?: boolean
 	enableSubfolderRules?: boolean
 	maxImageFileSize?: number
@@ -49,6 +50,7 @@ type ContextManagementSettingsProps = HTMLAttributes<HTMLDivElement> & {
 		| "autoCondenseContextPercent"
 		| "maxOpenTabsContext"
 		| "maxWorkspaceFiles"
+		| "workspaceRecursiveFileListInEnvironment"
 		| "showRooIgnoredFiles"
 		| "enableSubfolderRules"
 		| "maxImageFileSize"
@@ -69,6 +71,7 @@ export const ContextManagementSettings = ({
 	listApiConfigMeta,
 	maxOpenTabsContext,
 	maxWorkspaceFiles,
+	workspaceRecursiveFileListInEnvironment,
 	showRooIgnoredFiles,
 	enableSubfolderRules,
 	setCachedStateField,
@@ -155,11 +158,11 @@ export const ContextManagementSettings = ({
 							min={0}
 							max={500}
 							step={1}
-							value={[maxOpenTabsContext ?? 20]}
+							value={[maxOpenTabsContext ?? 0]}
 							onValueChange={([value]) => setCachedStateField("maxOpenTabsContext", value)}
 							data-testid="open-tabs-limit-slider"
 						/>
-						<span className="w-10">{maxOpenTabsContext ?? 20}</span>
+						<span className="w-10">{maxOpenTabsContext ?? 0}</span>
 					</div>
 					<div className="text-vscode-descriptionForeground text-sm mt-1">
 						{t("settings:contextManagement.openTabs.description")}
@@ -178,14 +181,33 @@ export const ContextManagementSettings = ({
 							min={0}
 							max={500}
 							step={1}
-							value={[maxWorkspaceFiles ?? 200]}
+							value={[maxWorkspaceFiles ?? 0]}
 							onValueChange={([value]) => setCachedStateField("maxWorkspaceFiles", value)}
 							data-testid="workspace-files-limit-slider"
 						/>
-						<span className="w-10">{maxWorkspaceFiles ?? 200}</span>
+						<span className="w-10">{maxWorkspaceFiles ?? 0}</span>
 					</div>
 					<div className="text-vscode-descriptionForeground text-sm mt-1">
 						{t("settings:contextManagement.workspaceFiles.description")}
+					</div>
+				</SearchableSetting>
+
+				<SearchableSetting
+					settingId="context-workspace-env-recursive"
+					section="contextManagement"
+					label={t("settings:contextManagement.workspaceEnvRecursive.label")}>
+					<VSCodeCheckbox
+						checked={workspaceRecursiveFileListInEnvironment ?? false}
+						onChange={(e: any) =>
+							setCachedStateField("workspaceRecursiveFileListInEnvironment", e.target.checked)
+						}
+						data-testid="workspace-env-recursive-checkbox">
+						<label className="block font-medium mb-1">
+							{t("settings:contextManagement.workspaceEnvRecursive.label")}
+						</label>
+					</VSCodeCheckbox>
+					<div className="text-vscode-descriptionForeground text-sm mt-1 mb-3">
+						{t("settings:contextManagement.workspaceEnvRecursive.description")}
 					</div>
 				</SearchableSetting>
 

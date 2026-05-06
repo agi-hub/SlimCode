@@ -40,6 +40,7 @@ import { codebaseSearchTool } from "../tools/CodebaseSearchTool"
 
 import { formatResponse } from "../prompts/responses"
 import { sanitizeToolUseId } from "../../utils/tool-id"
+import { DEFAULT_OPT_CONFIG, compressToolResultContent } from "../../opt"
 
 /**
  * Processes and presents assistant message content to the user interface.
@@ -164,6 +165,14 @@ export async function presentAssistantMessage(cline: Task) {
 						const feedbackImageBlocks = formatResponse.imageBlocks(approvalFeedback.images)
 						imageBlocks = [...feedbackImageBlocks, ...imageBlocks]
 					}
+				}
+
+				// opt1/optE: compress tool result content before writing to history
+				if (DEFAULT_OPT_CONFIG.toolResultCompression) {
+					resultContent = compressToolResultContent(mcpBlock.toolName, resultContent, {
+						maxChars: DEFAULT_OPT_CONFIG.maxToolResultChars,
+						maxCommandChars: DEFAULT_OPT_CONFIG.maxCommandResultChars,
+					}) as string
 				}
 
 				if (toolCallId) {
@@ -476,6 +485,14 @@ export async function presentAssistantMessage(cline: Task) {
 						const feedbackImageBlocks = formatResponse.imageBlocks(approvalFeedback.images)
 						imageBlocks = [...feedbackImageBlocks, ...imageBlocks]
 					}
+				}
+
+				// opt1/optE: compress tool result content before writing to history
+				if (DEFAULT_OPT_CONFIG.toolResultCompression) {
+					resultContent = compressToolResultContent(block.name, resultContent, {
+						maxChars: DEFAULT_OPT_CONFIG.maxToolResultChars,
+						maxCommandChars: DEFAULT_OPT_CONFIG.maxCommandResultChars,
+					}) as string
 				}
 
 				cline.pushToolResultToUserContent({

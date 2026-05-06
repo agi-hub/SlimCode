@@ -89,8 +89,9 @@ describe("ContextManagementSettings", () => {
 		autoCondenseContext: false,
 		autoCondenseContextPercent: 80,
 		listApiConfigMeta: [],
-		maxOpenTabsContext: 20,
-		maxWorkspaceFiles: 200,
+		maxOpenTabsContext: 0,
+		maxWorkspaceFiles: 0,
+		workspaceRecursiveFileListInEnvironment: false,
 		showRooIgnoredFiles: false,
 		profileThresholds: {},
 		includeDiagnosticMessages: true,
@@ -103,6 +104,11 @@ describe("ContextManagementSettings", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks()
+	})
+
+	it("renders workspace env recursive listing checkbox", () => {
+		render(<ContextManagementSettings {...defaultProps} />)
+		expect(screen.getByTestId("workspace-env-recursive-checkbox")).toBeInTheDocument()
 	})
 
 	it("renders diagnostic settings", () => {
@@ -426,8 +432,8 @@ describe("ContextManagementSettings", () => {
 		}).not.toThrow()
 
 		// Should use default values
-		expect(screen.getByText("20")).toBeInTheDocument() // default maxOpenTabsContext
-		expect(screen.getByText("200")).toBeInTheDocument() // default maxWorkspaceFiles
+		expect(screen.getByTestId("open-tabs-limit-slider")).toHaveValue("0") // default maxOpenTabsContext
+		expect(screen.getByTestId("workspace-files-limit-slider")).toHaveValue("0") // default maxWorkspaceFiles
 	})
 
 	describe("Conditional rendering", () => {

@@ -56,18 +56,15 @@ describe("createReadFileTool", () => {
 			const tool = createReadFileTool({ supportsImages: true })
 			const description = getFunctionDef(tool).description
 
-			expect(description).toContain(
-				"Automatically processes and returns image files (PNG, JPG, JPEG, GIF, BMP, SVG, WEBP, ICO, AVIF) for visual analysis",
-			)
+			expect(description).toContain("Image formats (PNG, JPG, JPEG, GIF, BMP, SVG, WEBP, ICO, AVIF)")
+			expect(description).toContain("visual analysis")
 		})
 
 		it("should not include image format documentation when supportsImages is false", () => {
 			const tool = createReadFileTool({ supportsImages: false })
 			const description = getFunctionDef(tool).description
 
-			expect(description).not.toContain(
-				"Automatically processes and returns image files (PNG, JPG, JPEG, GIF, BMP, SVG, WEBP, ICO, AVIF) for visual analysis",
-			)
+			expect(description).not.toContain("Image formats (PNG, JPG, JPEG, GIF, BMP, SVG, WEBP, ICO, AVIF)")
 			expect(description).toContain("may not handle other binary files properly")
 		})
 
@@ -75,9 +72,7 @@ describe("createReadFileTool", () => {
 			const tool = createReadFileTool({})
 			const description = getFunctionDef(tool).description
 
-			expect(description).not.toContain(
-				"Automatically processes and returns image files (PNG, JPG, JPEG, GIF, BMP, SVG, WEBP, ICO, AVIF) for visual analysis",
-			)
+			expect(description).not.toContain("Image formats (PNG, JPG, JPEG, GIF, BMP, SVG, WEBP, ICO, AVIF)")
 		})
 
 		it("should always include PDF and DOCX support in description", () => {

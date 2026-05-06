@@ -71,7 +71,7 @@ export interface ExtractTextResult {
  * Returns structured result with metadata about truncation.
  *
  * @param filePath - Path to the file to extract text from
- * @param limit - Maximum lines to return (default: 2000)
+ * @param limit - Maximum lines to return (default: 1000)
  * @returns Promise resolving to extracted text with metadata
  * @throws {Error} If file not found or unsupported binary format
  */

@@ -105,6 +105,11 @@ export class TerminalProcess extends BaseTerminalProcess {
 			(defaultWindowsShellProfile === null ||
 				(defaultWindowsShellProfile as string)?.toLowerCase().includes("powershell"))
 
+		const isWindowsCmd =
+			process.platform === "win32" &&
+			!isPowerShell &&
+			(defaultWindowsShellProfile as string | null)?.toLowerCase().includes("cmd")
+
 		if (isPowerShell) {
 			let commandToExecute = command
 
@@ -119,6 +124,10 @@ export class TerminalProcess extends BaseTerminalProcess {
 			}
 
 			terminal.shellIntegration.executeCommand(commandToExecute)
+		} else if (isWindowsCmd) {
+			// For cmd.exe on Windows, switch code page to UTF-8 (65001) silently
+			// before running the command so CJK characters are not garbled.
+			terminal.shellIntegration.executeCommand(`chcp 65001>nul && ${command}`)
 		} else {
 			terminal.shellIntegration.executeCommand(command)
 		}

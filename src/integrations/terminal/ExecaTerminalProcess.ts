@@ -1,6 +1,7 @@
 import { execa, ExecaError } from "execa"
 import psTree from "ps-tree"
 import process from "process"
+import { spawn, type ChildProcessWithoutNullStreams } from "child_process"
 
 import type { RooTerminal } from "./types"
 import { BaseTerminal } from "./BaseTerminal"
@@ -11,7 +12,19 @@ export class ExecaTerminalProcess extends BaseTerminalProcess {
 	private aborted = false
 	private pid?: number
 	private subprocess?: ReturnType<typeof execa>
+	private legacySubprocess?: ChildProcessWithoutNullStreams
 	private pidUpdatePromise?: Promise<void>
+	private readonly utf8Decoder = new TextDecoder("utf-8")
+	private readonly gbkDecoder =
+		process.platform === "win32"
+			? (() => {
+					try {
+						return new TextDecoder("gbk")
+					} catch {
+						return undefined
+					}
+				})()
+			: undefined
 
 	constructor(terminal: RooTerminal) {
 		super()
@@ -39,98 +52,138 @@ export class ExecaTerminalProcess extends BaseTerminalProcess {
 		try {
 			this.isHot = true
 
-			this.subprocess = execa({
-				shell: BaseTerminal.getExecaShellPath() || true,
-				cwd: this.terminal.getCurrentWorkingDirectory(),
-				all: true,
-				// Ignore stdin to ensure non-interactive mode and prevent hanging
-				stdin: "ignore",
-				env: {
-					...process.env,
-					// Ensure UTF-8 encoding for Ruby, CocoaPods, etc.
-					LANG: "en_US.UTF-8",
-					LC_ALL: "en_US.UTF-8",
-				},
-			})`${command}`
+			// On Windows, LANG/LC_ALL are Unix-only and ignored by cmd/PowerShell.
+			// Switch the console code page to UTF-8 (65001) so that CJK characters
+			// and other non-ASCII output are not garbled.
+			let commandToRun = command
+			const utf8Env: Record<string, string> =
+				process.platform === "win32"
+					? {
+							PYTHONUTF8: "1",
+							PYTHONIOENCODING: "utf-8",
+						}
+					: {
+							LANG: "en_US.UTF-8",
+							LC_ALL: "en_US.UTF-8",
+						}
 
-			this.pid = this.subprocess.pid
+			if (process.platform === "win32") {
+				const shellPath = (BaseTerminal.getExecaShellPath() ?? "").toLowerCase()
+				const isPowerShell =
+					shellPath.includes("powershell") ||
+					shellPath.includes("pwsh") ||
+					// When no explicit shell is set (shell: true → cmd.exe on Windows),
+					// also check the COMSPEC env var and common PowerShell defaults.
+					(!shellPath && (process.env.COMSPEC ?? "").toLowerCase().includes("powershell"))
 
-			// When using shell: true, the PID is for the shell, not the actual command
-			// Find the actual command PID after a small delay
-			if (this.pid) {
-				this.pidUpdatePromise = new Promise<void>((resolve) => {
-					setTimeout(() => {
-						psTree(this.pid!, (err, children) => {
-							if (!err && children.length > 0) {
-								// Update PID to the first child (the actual command)
-								const actualPid = parseInt(children[0].PID)
-								if (!isNaN(actualPid)) {
-									this.pid = actualPid
+				if (isPowerShell) {
+					// Force PowerShell to use UTF-8 for both input and output.
+					commandToRun = `$OutputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ${command}`
+				} else {
+					// For cmd.exe: switch the code page to UTF-8 (65001) silently,
+					// then run the actual command. The ">nul" suppresses the
+					// "Active code page: 65001" message so it does not pollute output.
+					commandToRun = `chcp 65001>nul && ${command}`
+				}
+			}
+
+			if (typeof (process as NodeJS.Process & { addAbortListener?: unknown }).addAbortListener !== "function") {
+				console.warn(
+					"[ExecaTerminalProcess#run] Node runtime lacks process.addAbortListener, falling back to child_process",
+				)
+				await this.runWithLegacySpawn(commandToRun, utf8Env)
+			} else {
+				this.subprocess = execa({
+					shell: BaseTerminal.getExecaShellPath() || true,
+					cwd: this.terminal.getCurrentWorkingDirectory(),
+					all: true,
+					// Ignore stdin to ensure non-interactive mode and prevent hanging
+					stdin: "ignore",
+					env: {
+						...process.env,
+						...utf8Env,
+					},
+				})`${commandToRun}`
+
+				this.pid = this.subprocess.pid
+
+				// When using shell: true, the PID is for the shell, not the actual command
+				// Find the actual command PID after a small delay
+				if (this.pid) {
+					this.pidUpdatePromise = new Promise<void>((resolve) => {
+						setTimeout(() => {
+							psTree(this.pid!, (err, children) => {
+								if (!err && children.length > 0) {
+									// Update PID to the first child (the actual command)
+									const actualPid = parseInt(children[0].PID)
+									if (!isNaN(actualPid)) {
+										this.pid = actualPid
+									}
 								}
-							}
-							resolve()
-						})
-					}, 100)
-				})
-			}
-
-			const rawStream = this.subprocess.iterable({ from: "all", preserveNewlines: true })
-
-			// Wrap the stream to ensure all chunks are strings (execa can return Uint8Array)
-			const stream = (async function* () {
-				for await (const chunk of rawStream) {
-					yield typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk)
+								resolve()
+							})
+						}, 100)
+					})
 				}
-			})()
 
-			this.terminal.setActiveStream(stream, this.pid)
+				const rawStream = this.subprocess.iterable({ from: "all", preserveNewlines: true })
 
-			for await (const line of stream) {
+				// Wrap the stream to ensure all chunks are strings (execa can return Uint8Array)
+				const stream = (async function* () {
+					for await (const chunk of rawStream) {
+						yield typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk)
+					}
+				})()
+
+				this.terminal.setActiveStream(stream, this.pid)
+
+				for await (const line of stream) {
+					if (this.aborted) {
+						break
+					}
+
+					this.fullOutput += line
+
+					const now = Date.now()
+
+					if (this.isListening && (now - this.lastEmitTime_ms > 500 || this.lastEmitTime_ms === 0)) {
+						this.emitRemainingBufferIfListening()
+						this.lastEmitTime_ms = now
+					}
+
+					this.startHotTimer(line)
+				}
+
 				if (this.aborted) {
-					break
+					let timeoutId: NodeJS.Timeout | undefined
+
+					const kill = new Promise<void>((resolve) => {
+						console.log(`[ExecaTerminalProcess#run] SIGKILL -> ${this.pid}`)
+
+						timeoutId = setTimeout(() => {
+							try {
+								this.subprocess?.kill("SIGKILL")
+							} catch (e) {}
+
+							resolve()
+						}, 5_000)
+					})
+
+					try {
+						await Promise.race([this.subprocess, kill])
+					} catch (error) {
+						console.log(
+							`[ExecaTerminalProcess#run] subprocess termination error: ${error instanceof Error ? error.message : String(error)}`,
+						)
+					}
+
+					if (timeoutId) {
+						clearTimeout(timeoutId)
+					}
 				}
 
-				this.fullOutput += line
-
-				const now = Date.now()
-
-				if (this.isListening && (now - this.lastEmitTime_ms > 500 || this.lastEmitTime_ms === 0)) {
-					this.emitRemainingBufferIfListening()
-					this.lastEmitTime_ms = now
-				}
-
-				this.startHotTimer(line)
+				this.emit("shell_execution_complete", { exitCode: 0 })
 			}
-
-			if (this.aborted) {
-				let timeoutId: NodeJS.Timeout | undefined
-
-				const kill = new Promise<void>((resolve) => {
-					console.log(`[ExecaTerminalProcess#run] SIGKILL -> ${this.pid}`)
-
-					timeoutId = setTimeout(() => {
-						try {
-							this.subprocess?.kill("SIGKILL")
-						} catch (e) {}
-
-						resolve()
-					}, 5_000)
-				})
-
-				try {
-					await Promise.race([this.subprocess, kill])
-				} catch (error) {
-					console.log(
-						`[ExecaTerminalProcess#run] subprocess termination error: ${error instanceof Error ? error.message : String(error)}`,
-					)
-				}
-
-				if (timeoutId) {
-					clearTimeout(timeoutId)
-				}
-			}
-
-			this.emit("shell_execution_complete", { exitCode: 0 })
 		} catch (error) {
 			if (error instanceof ExecaError) {
 				console.error(`[ExecaTerminalProcess#run] shell execution error: ${error.message}`)
@@ -164,6 +217,16 @@ export class ExecaTerminalProcess extends BaseTerminalProcess {
 
 		// Function to perform the kill operations
 		const performKill = () => {
+			if (this.legacySubprocess) {
+				try {
+					this.legacySubprocess.kill("SIGKILL")
+				} catch (e) {
+					console.warn(
+						`[ExecaTerminalProcess#abort] Failed to kill legacy subprocess: ${e instanceof Error ? e.message : String(e)}`,
+					)
+				}
+			}
+
 			// Try to kill using the subprocess object
 			if (this.subprocess) {
 				try {
@@ -252,5 +315,83 @@ export class ExecaTerminalProcess extends BaseTerminalProcess {
 		if (output !== "") {
 			this.emit("line", output)
 		}
+	}
+
+	private async runWithLegacySpawn(commandToRun: string, utf8Env: Record<string, string>): Promise<void> {
+		const shell = BaseTerminal.getExecaShellPath() || true
+
+		await new Promise<void>((resolve) => {
+			this.legacySubprocess = spawn(commandToRun, {
+				shell,
+				cwd: this.terminal.getCurrentWorkingDirectory(),
+				stdio: ["ignore", "pipe", "pipe"],
+				env: {
+					...process.env,
+					...utf8Env,
+				},
+			})
+
+			this.pid = this.legacySubprocess.pid
+			this.terminal.setActiveStream(undefined, this.pid)
+
+			const onData = (chunk: string | Buffer) => {
+				if (this.aborted) {
+					return
+				}
+
+				const text = typeof chunk === "string" ? chunk : this.decodeLegacyChunk(chunk)
+				this.fullOutput += text
+
+				const now = Date.now()
+				if (this.isListening && (now - this.lastEmitTime_ms > 500 || this.lastEmitTime_ms === 0)) {
+					this.emitRemainingBufferIfListening()
+					this.lastEmitTime_ms = now
+				}
+
+				this.startHotTimer(text)
+			}
+
+			this.legacySubprocess.stdout.on("data", onData)
+			this.legacySubprocess.stderr.on("data", onData)
+
+			this.legacySubprocess.once("error", (error) => {
+				console.error(`[ExecaTerminalProcess#runWithLegacySpawn] shell execution error: ${error.message}`)
+				this.emit("shell_execution_complete", { exitCode: 1 })
+				this.legacySubprocess = undefined
+				resolve()
+			})
+
+			this.legacySubprocess.once("close", (code, signal) => {
+				this.emit("shell_execution_complete", { exitCode: code ?? 0, signalName: signal ?? undefined })
+				this.legacySubprocess = undefined
+				resolve()
+			})
+		})
+	}
+
+	private decodeLegacyChunk(chunk: Buffer): string {
+		const utf8 = this.utf8Decoder.decode(chunk, { stream: true })
+
+		// Old Windows shells may still emit GBK/ACP despite UTF-8 setup.
+		// If UTF-8 decoding looks corrupted, prefer GBK when available.
+		if (process.platform === "win32" && this.gbkDecoder && this.looksCorrupted(utf8)) {
+			return this.gbkDecoder.decode(chunk, { stream: true })
+		}
+
+		return utf8
+	}
+
+	private looksCorrupted(text: string): boolean {
+		if (!text) {
+			return false
+		}
+
+		const replacementCharMatches = text.match(/\uFFFD/g)
+		if (!replacementCharMatches) {
+			return false
+		}
+
+		// Heuristic: treat as corrupted when replacement chars are frequent.
+		return replacementCharMatches.length >= 2 || replacementCharMatches.length / text.length > 0.05
 	}
 }

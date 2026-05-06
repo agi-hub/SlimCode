@@ -11,6 +11,7 @@ import {
 	isDynamicProvider,
 	isFauxProvider,
 	isCustomProvider,
+	getOrganizationProviderAllowEntry,
 } from "@roo-code/types"
 
 export function validateApiConfiguration(
@@ -149,7 +150,7 @@ function validateProviderAgainstOrganizationSettings(
 			return undefined
 		}
 
-		const providerConfig = organizationAllowList.providers[provider]
+		const providerConfig = getOrganizationProviderAllowEntry(organizationAllowList, provider)
 
 		if (!providerConfig) {
 			return {

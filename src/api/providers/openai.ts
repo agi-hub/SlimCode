@@ -10,7 +10,7 @@ import {
 	OPENAI_AZURE_AI_INFERENCE_PATH,
 } from "@roo-code/types"
 
-import type { ApiHandlerOptions } from "../../shared/api"
+import { type ApiHandlerOptions, shouldUseReasoningEffort } from "../../shared/api"
 
 import { TagMatcher } from "../../utils/tag-matcher"
 
@@ -32,15 +32,19 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 	protected options: ApiHandlerOptions
 	protected client: OpenAI
 	private readonly providerName = "OpenAI"
+	/** Trimmed base URL; must match {@link getOpenAiModels} normalization so listing and chat hit the same host/path. */
+	private readonly openAiBaseUrl: string | undefined
 
 	constructor(options: ApiHandlerOptions) {
 		super()
 		this.options = options
+		const trimmed = options.openAiBaseUrl?.trim()
+		this.openAiBaseUrl = trimmed && trimmed.length > 0 ? trimmed : undefined
 
-		const baseURL = this.options.openAiBaseUrl || "https://api.openai.com/v1"
+		const baseURL = this.openAiBaseUrl || "https://api.openai.com/v1"
 		const apiKey = this.options.openAiApiKey ?? "not-provided"
-		const isAzureAiInference = this._isAzureAiInference(this.options.openAiBaseUrl)
-		const urlHost = this._getUrlHost(this.options.openAiBaseUrl)
+		const isAzureAiInference = this._isAzureAiInference(this.openAiBaseUrl)
+		const urlHost = this._getUrlHost(this.openAiBaseUrl)
 		const isAzureOpenAi = urlHost === "azure.com" || urlHost.endsWith(".azure.com") || options.openAiUseAzure
 
 		const headers = {
@@ -85,7 +89,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 		metadata?: ApiHandlerCreateMessageMetadata,
 	): ApiStream {
 		const { info: modelInfo, reasoning } = this.getModel()
-		const modelUrl = this.options.openAiBaseUrl ?? ""
+		const modelUrl = this.openAiBaseUrl ?? ""
 		const modelId = this.options.openAiModelId ?? ""
 		const enabledR1Format = this.options.openAiR1FormatEnabled ?? false
 		const isAzureAiInference = this._isAzureAiInference(modelUrl)
@@ -150,7 +154,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				}
 			}
 
-			const isGrokXAI = this._isGrokXAI(this.options.openAiBaseUrl)
+			const isGrokXAI = this._isGrokXAI(this.openAiBaseUrl)
 
 			const requestOptions: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
 				model: modelId,
@@ -177,14 +181,23 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				throw handleOpenAIError(error, this.providerName)
 			}
 
-			const matcher = new TagMatcher(
-				"think",
-				(chunk) =>
-					({
-						type: chunk.matched ? "reasoning" : "text",
-						text: chunk.data,
-					}) as const,
-			)
+			// Many OpenAI-compatible backends still stream reasoning_content or <think> even when we omit
+			// reasoning_effort. Only surface that as "reasoning" UI when the user enabled reasoning effort.
+			const surfaceReasoningStream = shouldUseReasoningEffort({
+				model: modelInfo,
+				settings: this.options,
+			})
+
+			const thinkMatcher = surfaceReasoningStream
+				? new TagMatcher(
+						"think",
+						(chunk) =>
+							({
+								type: chunk.matched ? "reasoning" : "text",
+								text: chunk.data,
+							}) as const,
+					)
+				: new TagMatcher("think")
 
 			let lastUsage
 			const activeToolCallIds = new Set<string>()
@@ -194,12 +207,20 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				const finishReason = chunk.choices?.[0]?.finish_reason
 
 				if (delta.content) {
-					for (const chunk of matcher.update(delta.content)) {
-						yield chunk
+					if (surfaceReasoningStream) {
+						for (const c of thinkMatcher.update(delta.content)) {
+							yield c
+						}
+					} else {
+						for (const c of thinkMatcher.update(delta.content)) {
+							if (!c.matched && c.data) {
+								yield { type: "text", text: c.data }
+							}
+						}
 					}
 				}
 
-				if ("reasoning_content" in delta && delta.reasoning_content) {
+				if (surfaceReasoningStream && "reasoning_content" in delta && delta.reasoning_content) {
 					yield {
 						type: "reasoning",
 						text: (delta.reasoning_content as string | undefined) || "",
@@ -213,8 +234,16 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				}
 			}
 
-			for (const chunk of matcher.final()) {
-				yield chunk
+			if (surfaceReasoningStream) {
+				for (const c of thinkMatcher.final()) {
+					yield c
+				}
+			} else {
+				for (const c of thinkMatcher.final()) {
+					if (!c.matched && c.data) {
+						yield { type: "text", text: c.data }
+					}
+				}
 			}
 
 			if (lastUsage) {
@@ -294,7 +323,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 
 	async completePrompt(prompt: string): Promise<string> {
 		try {
-			const isAzureAiInference = this._isAzureAiInference(this.options.openAiBaseUrl)
+			const isAzureAiInference = this._isAzureAiInference(this.openAiBaseUrl)
 			const model = this.getModel()
 			const modelInfo = model.info
 
@@ -332,11 +361,11 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 		messages: Anthropic.Messages.MessageParam[],
 		metadata?: ApiHandlerCreateMessageMetadata,
 	): ApiStream {
-		const modelInfo = this.getModel().info
-		const methodIsAzureAiInference = this._isAzureAiInference(this.options.openAiBaseUrl)
+		const { info: modelInfo, reasoning } = this.getModel()
+		const methodIsAzureAiInference = this._isAzureAiInference(this.openAiBaseUrl)
 
 		if (this.options.openAiStreamingEnabled ?? true) {
-			const isGrokXAI = this._isGrokXAI(this.options.openAiBaseUrl)
+			const isGrokXAI = this._isGrokXAI(this.openAiBaseUrl)
 
 			const requestOptions: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
 				model: modelId,
@@ -349,7 +378,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				],
 				stream: true,
 				...(isGrokXAI ? {} : { stream_options: { include_usage: true } }),
-				reasoning_effort: modelInfo.reasoningEffort as "low" | "medium" | "high" | undefined,
+				...(reasoning && reasoning),
 				temperature: undefined,
 				// Tools are always present (minimum ALWAYS_AVAILABLE_TOOLS)
 				tools: this.convertToolsForOpenAI(metadata?.tools),
@@ -383,7 +412,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 					},
 					...convertToOpenAiMessages(messages),
 				],
-				reasoning_effort: modelInfo.reasoningEffort as "low" | "medium" | "high" | undefined,
+				...(reasoning && reasoning),
 				temperature: undefined,
 				// Tools are always present (minimum ALWAYS_AVAILABLE_TOOLS)
 				tools: this.convertToolsForOpenAI(metadata?.tools),

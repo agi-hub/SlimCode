@@ -57,7 +57,7 @@ import { supportPrompt } from "../../shared/support-prompt"
 import { GlobalFileNames } from "../../shared/globalFileNames"
 import { Mode, defaultModeSlug, getModeBySlug } from "../../shared/modes"
 import { experimentDefault } from "../../shared/experiments"
-import { formatLanguage } from "../../shared/language"
+import { CLOUD_FEATURES_ENABLED } from "../../shared/cloud"
 import { WebviewMessage } from "../../shared/WebviewMessage"
 import { EMBEDDING_MODEL_PROFILES } from "../../shared/embeddingModels"
 import { ProfileValidator } from "../../shared/ProfileValidator"
@@ -160,6 +160,7 @@ export class ClineProvider
 	private cloudOrganizationsCache: CloudOrganizationMembership[] | null = null
 	private cloudOrganizationsCacheTimestamp: number | null = null
 	private static readonly CLOUD_ORGANIZATIONS_CACHE_DURATION_MS = 5 * 1000 // 5 seconds
+	private cloudOrganizationsFetchPromise: Promise<void> | null = null
 
 	/**
 	 * Monotonically increasing sequence number for clineMessages state pushes.
@@ -881,10 +882,10 @@ export class ClineProvider
 			localResourceRoots: resourceRoots,
 		}
 
-		webviewView.webview.html =
-			this.contextProxy.extensionMode === vscode.ExtensionMode.Development
-				? await this.getHMRHtmlContent(webviewView.webview)
-				: await this.getHtmlContent(webviewView.webview)
+		const useHmr = this.contextProxy.extensionMode === vscode.ExtensionMode.Development
+		webviewView.webview.html = useHmr
+			? await this.getHMRHtmlContent(webviewView.webview)
+			: await this.getHtmlContent(webviewView.webview)
 
 		// Sets up an event listener to listen for messages passed from the webview view context
 		// and executes code based on the message that is received.
@@ -946,7 +947,10 @@ export class ClineProvider
 		const configDisposable = vscode.workspace.onDidChangeConfiguration(async (e) => {
 			if (e && e.affectsConfiguration("workbench.colorTheme")) {
 				// Sends latest theme name to webview
-				await this.postMessageToWebview({ type: "theme", text: JSON.stringify(await getTheme()) })
+				await this.postMessageToWebview({
+					type: "theme",
+					text: JSON.stringify(await getTheme(this.contextProxy.extensionUri)),
+				})
 			}
 		})
 		this.webviewDisposables.push(configDisposable)
@@ -2124,8 +2128,17 @@ export class ClineProvider
 	}
 
 	async getStateToPostToWebview(): Promise<ExtensionState> {
-		// Ensure the store is initialized before reading task history
-		await this.taskHistoryStore.initialized
+		// Ensure the store is initialized before reading task history. On some hosts (slow disk,
+		// network-backed globalStorage, or FS watcher edge cases) init can stall; the webview stays
+		// blank until the first `state` message, so we must not block forever.
+		await Promise.race([
+			this.taskHistoryStore.initialized,
+			new Promise<void>((resolve) => {
+				setTimeout(() => {
+					resolve()
+				}, 12_000)
+			}),
+		])
 
 		const {
 			apiConfiguration,
@@ -2175,6 +2188,7 @@ export class ClineProvider
 			experiments,
 			maxOpenTabsContext,
 			maxWorkspaceFiles,
+			workspaceRecursiveFileListInEnvironment,
 			disabledTools,
 			telemetrySetting,
 			showRooIgnoredFiles,
@@ -2210,27 +2224,7 @@ export class ClineProvider
 			lockApiConfigAcrossModes,
 		} = await this.getState()
 
-		let cloudOrganizations: CloudOrganizationMembership[] = []
-
-		try {
-			if (!CloudService.instance.isCloudAgent) {
-				const now = Date.now()
-
-				if (
-					this.cloudOrganizationsCache !== null &&
-					this.cloudOrganizationsCacheTimestamp !== null &&
-					now - this.cloudOrganizationsCacheTimestamp < ClineProvider.CLOUD_ORGANIZATIONS_CACHE_DURATION_MS
-				) {
-					cloudOrganizations = this.cloudOrganizationsCache!
-				} else {
-					cloudOrganizations = await CloudService.instance.getOrganizationMemberships()
-					this.cloudOrganizationsCache = cloudOrganizations
-					this.cloudOrganizationsCacheTimestamp = now
-				}
-			}
-		} catch (error) {
-			// Ignore this error.
-		}
+		const cloudOrganizations = this.getCloudOrganizationsForState()
 
 		const telemetryKey = process.env.POSTHOG_API_KEY
 		const machineId = vscode.env.machineId
@@ -2243,15 +2237,15 @@ export class ClineProvider
 			version: this.context.extension?.packageJSON?.version ?? "",
 			apiConfiguration,
 			customInstructions,
-			alwaysAllowReadOnly: alwaysAllowReadOnly ?? false,
-			alwaysAllowReadOnlyOutsideWorkspace: alwaysAllowReadOnlyOutsideWorkspace ?? false,
-			alwaysAllowWrite: alwaysAllowWrite ?? false,
-			alwaysAllowWriteOutsideWorkspace: alwaysAllowWriteOutsideWorkspace ?? false,
-			alwaysAllowWriteProtected: alwaysAllowWriteProtected ?? false,
-			alwaysAllowExecute: alwaysAllowExecute ?? false,
-			alwaysAllowMcp: alwaysAllowMcp ?? false,
-			alwaysAllowModeSwitch: alwaysAllowModeSwitch ?? false,
-			alwaysAllowSubtasks: alwaysAllowSubtasks ?? false,
+			alwaysAllowReadOnly: alwaysAllowReadOnly ?? true,
+			alwaysAllowReadOnlyOutsideWorkspace: alwaysAllowReadOnlyOutsideWorkspace ?? true,
+			alwaysAllowWrite: alwaysAllowWrite ?? true,
+			alwaysAllowWriteOutsideWorkspace: alwaysAllowWriteOutsideWorkspace ?? true,
+			alwaysAllowWriteProtected: alwaysAllowWriteProtected ?? true,
+			alwaysAllowExecute: alwaysAllowExecute ?? true,
+			alwaysAllowMcp: alwaysAllowMcp ?? true,
+			alwaysAllowModeSwitch: alwaysAllowModeSwitch ?? true,
+			alwaysAllowSubtasks: alwaysAllowSubtasks ?? true,
 			allowedMaxRequests,
 			allowedMaxCost,
 			autoCondenseContext: autoCondenseContext ?? true,
@@ -2268,8 +2262,7 @@ export class ClineProvider
 			ttsSpeed: ttsSpeed ?? 1.0,
 			enableCheckpoints: enableCheckpoints ?? true,
 			checkpointTimeout: checkpointTimeout ?? DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
-			shouldShowAnnouncement:
-				telemetrySetting !== "unset" && lastShownAnnouncementId !== this.latestAnnouncementId,
+			shouldShowAnnouncement: false,
 			allowedCommands: mergedAllowedCommands,
 			deniedCommands: mergedDeniedCommands,
 			soundVolume: soundVolume ?? 0.5,
@@ -2290,12 +2283,13 @@ export class ClineProvider
 			customModePrompts: customModePrompts ?? {},
 			customSupportPrompts: customSupportPrompts ?? {},
 			enhancementApiConfigId,
-			autoApprovalEnabled: autoApprovalEnabled ?? false,
+			autoApprovalEnabled: autoApprovalEnabled ?? true,
 			customModes,
 			experiments: experiments ?? experimentDefault,
 			mcpServers: this.mcpHub?.getAllServers() ?? [],
-			maxOpenTabsContext: maxOpenTabsContext ?? 20,
-			maxWorkspaceFiles: maxWorkspaceFiles ?? 200,
+			maxOpenTabsContext: maxOpenTabsContext ?? 0,
+			maxWorkspaceFiles: maxWorkspaceFiles ?? 0,
+			workspaceRecursiveFileListInEnvironment: workspaceRecursiveFileListInEnvironment ?? false,
 			cwd,
 			disabledTools,
 			telemetrySetting,
@@ -2303,7 +2297,7 @@ export class ClineProvider
 			machineId,
 			showRooIgnoredFiles: showRooIgnoredFiles ?? false,
 			enableSubfolderRules: enableSubfolderRules ?? false,
-			language: language ?? formatLanguage(vscode.env.language),
+			language: language ?? "zh-CN",
 			renderContext: this.renderContext,
 			maxImageFileSize: maxImageFileSize ?? 5,
 			maxTotalImageSize: maxTotalImageSize ?? 20,
@@ -2339,10 +2333,10 @@ export class ClineProvider
 			// undefined means no MDM policy, true means compliant, false means non-compliant
 			mdmCompliant: this.mdmService?.requiresCloudAuth() ? this.checkMdmCompliance() : undefined,
 			profileThresholds: profileThresholds ?? {},
-			cloudApiUrl: getRooCodeApiUrl(),
+			cloudApiUrl: CLOUD_FEATURES_ENABLED ? getRooCodeApiUrl() : undefined,
 			hasOpenedModeSelector: this.getGlobalState("hasOpenedModeSelector") ?? false,
 			lockApiConfigAcrossModes: lockApiConfigAcrossModes ?? false,
-			alwaysAllowFollowupQuestions: alwaysAllowFollowupQuestions ?? false,
+			alwaysAllowFollowupQuestions: alwaysAllowFollowupQuestions ?? true,
 			followupAutoApproveTimeoutMs: followupAutoApproveTimeoutMs ?? 60000,
 			includeDiagnosticMessages: includeDiagnosticMessages ?? true,
 			maxDiagnosticMessages: maxDiagnosticMessages ?? 50,
@@ -2355,9 +2349,14 @@ export class ClineProvider
 			openRouterImageApiKey,
 			openRouterImageGenerationSelectedModel,
 			openAiCodexIsAuthenticated: await (async () => {
+				const falseAfterTimeout = new Promise<boolean>((resolve) => {
+					setTimeout(() => {
+						resolve(false)
+					}, 5_000)
+				})
 				try {
 					const { openAiCodexOAuthManager } = await import("../../integrations/openai-codex/oauth")
-					return await openAiCodexOAuthManager.isAuthenticated()
+					return await Promise.race([openAiCodexOAuthManager.isAuthenticated(), falseAfterTimeout])
 				} catch {
 					return false
 				}
@@ -2397,58 +2396,68 @@ export class ClineProvider
 
 		let organizationAllowList = ORGANIZATION_ALLOW_ALL
 
-		try {
-			organizationAllowList = await CloudService.instance.getAllowList()
-		} catch (error) {
-			console.error(
-				`[getState] failed to get organization allow list: ${error instanceof Error ? error.message : String(error)}`,
-			)
+		if (CLOUD_FEATURES_ENABLED && CloudService.hasInstance()) {
+			try {
+				organizationAllowList = await CloudService.instance.getAllowList()
+			} catch (error) {
+				console.error(
+					`[getState] failed to get organization allow list: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
 		}
 
 		let cloudUserInfo: CloudUserInfo | null = null
 
-		try {
-			cloudUserInfo = CloudService.instance.getUserInfo()
-		} catch (error) {
-			console.error(
-				`[getState] failed to get cloud user info: ${error instanceof Error ? error.message : String(error)}`,
-			)
+		if (CLOUD_FEATURES_ENABLED && CloudService.hasInstance()) {
+			try {
+				cloudUserInfo = CloudService.instance.getUserInfo()
+			} catch (error) {
+				console.error(
+					`[getState] failed to get cloud user info: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
 		}
 
 		let cloudIsAuthenticated: boolean = false
 
-		try {
-			cloudIsAuthenticated = CloudService.instance.isAuthenticated()
-		} catch (error) {
-			console.error(
-				`[getState] failed to get cloud authentication state: ${error instanceof Error ? error.message : String(error)}`,
-			)
+		if (CLOUD_FEATURES_ENABLED && CloudService.hasInstance()) {
+			try {
+				cloudIsAuthenticated = CloudService.instance.isAuthenticated()
+			} catch (error) {
+				console.error(
+					`[getState] failed to get cloud authentication state: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
 		}
 
 		let sharingEnabled: boolean = false
 
-		try {
-			sharingEnabled = await CloudService.instance.canShareTask()
-		} catch (error) {
-			console.error(
-				`[getState] failed to get sharing enabled state: ${error instanceof Error ? error.message : String(error)}`,
-			)
+		if (CLOUD_FEATURES_ENABLED && CloudService.hasInstance()) {
+			try {
+				sharingEnabled = await CloudService.instance.canShareTask()
+			} catch (error) {
+				console.error(
+					`[getState] failed to get sharing enabled state: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
 		}
 
 		let publicSharingEnabled: boolean = false
 
-		try {
-			publicSharingEnabled = await CloudService.instance.canSharePublicly()
-		} catch (error) {
-			console.error(
-				`[getState] failed to get public sharing enabled state: ${error instanceof Error ? error.message : String(error)}`,
-			)
+		if (CLOUD_FEATURES_ENABLED && CloudService.hasInstance()) {
+			try {
+				publicSharingEnabled = await CloudService.instance.canSharePublicly()
+			} catch (error) {
+				console.error(
+					`[getState] failed to get public sharing enabled state: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
 		}
 
 		let organizationSettingsVersion: number = -1
 
 		try {
-			if (CloudService.hasInstance()) {
+			if (CLOUD_FEATURES_ENABLED && CloudService.hasInstance()) {
 				const settings = CloudService.instance.getOrganizationSettings()
 				organizationSettingsVersion = settings?.version ?? -1
 			}
@@ -2460,12 +2469,14 @@ export class ClineProvider
 
 		let taskSyncEnabled: boolean = false
 
-		try {
-			taskSyncEnabled = CloudService.instance.isTaskSyncEnabled()
-		} catch (error) {
-			console.error(
-				`[getState] failed to get task sync enabled state: ${error instanceof Error ? error.message : String(error)}`,
-			)
+		if (CLOUD_FEATURES_ENABLED && CloudService.hasInstance()) {
+			try {
+				taskSyncEnabled = CloudService.instance.isTaskSyncEnabled()
+			} catch (error) {
+				console.error(
+					`[getState] failed to get task sync enabled state: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
 		}
 
 		// Return the same structure as before.
@@ -2474,16 +2485,16 @@ export class ClineProvider
 			lastShownAnnouncementId: stateValues.lastShownAnnouncementId,
 			customInstructions: stateValues.customInstructions,
 			apiModelId: stateValues.apiModelId,
-			alwaysAllowReadOnly: stateValues.alwaysAllowReadOnly ?? false,
-			alwaysAllowReadOnlyOutsideWorkspace: stateValues.alwaysAllowReadOnlyOutsideWorkspace ?? false,
-			alwaysAllowWrite: stateValues.alwaysAllowWrite ?? false,
-			alwaysAllowWriteOutsideWorkspace: stateValues.alwaysAllowWriteOutsideWorkspace ?? false,
-			alwaysAllowWriteProtected: stateValues.alwaysAllowWriteProtected ?? false,
-			alwaysAllowExecute: stateValues.alwaysAllowExecute ?? false,
-			alwaysAllowMcp: stateValues.alwaysAllowMcp ?? false,
-			alwaysAllowModeSwitch: stateValues.alwaysAllowModeSwitch ?? false,
-			alwaysAllowSubtasks: stateValues.alwaysAllowSubtasks ?? false,
-			alwaysAllowFollowupQuestions: stateValues.alwaysAllowFollowupQuestions ?? false,
+			alwaysAllowReadOnly: stateValues.alwaysAllowReadOnly ?? true,
+			alwaysAllowReadOnlyOutsideWorkspace: stateValues.alwaysAllowReadOnlyOutsideWorkspace ?? true,
+			alwaysAllowWrite: stateValues.alwaysAllowWrite ?? true,
+			alwaysAllowWriteOutsideWorkspace: stateValues.alwaysAllowWriteOutsideWorkspace ?? true,
+			alwaysAllowWriteProtected: stateValues.alwaysAllowWriteProtected ?? true,
+			alwaysAllowExecute: stateValues.alwaysAllowExecute ?? true,
+			alwaysAllowMcp: stateValues.alwaysAllowMcp ?? true,
+			alwaysAllowModeSwitch: stateValues.alwaysAllowModeSwitch ?? true,
+			alwaysAllowSubtasks: stateValues.alwaysAllowSubtasks ?? true,
+			alwaysAllowFollowupQuestions: stateValues.alwaysAllowFollowupQuestions ?? true,
 			followupAutoApproveTimeoutMs: stateValues.followupAutoApproveTimeoutMs ?? 60000,
 			diagnosticsEnabled: stateValues.diagnosticsEnabled ?? true,
 			allowedMaxRequests: stateValues.allowedMaxRequests,
@@ -2491,7 +2502,7 @@ export class ClineProvider
 			autoCondenseContext: stateValues.autoCondenseContext ?? true,
 			autoCondenseContextPercent: stateValues.autoCondenseContextPercent ?? 100,
 			taskHistory: this.taskHistoryStore.getAll(),
-			allowedCommands: stateValues.allowedCommands,
+			allowedCommands: stateValues.allowedCommands ?? ["*"],
 			deniedCommands: stateValues.deniedCommands,
 			soundEnabled: stateValues.soundEnabled ?? false,
 			ttsEnabled: stateValues.ttsEnabled ?? false,
@@ -2510,7 +2521,7 @@ export class ClineProvider
 			terminalZshP10k: stateValues.terminalZshP10k ?? false,
 			terminalZdotdir: stateValues.terminalZdotdir ?? false,
 			mode: stateValues.mode ?? defaultModeSlug,
-			language: stateValues.language ?? formatLanguage(vscode.env.language),
+			language: stateValues.language ?? "zh-CN",
 			mcpEnabled: stateValues.mcpEnabled ?? true,
 			mcpServers: this.mcpHub?.getAllServers() ?? [],
 			currentApiConfigName: stateValues.currentApiConfigName ?? "default",
@@ -2521,12 +2532,13 @@ export class ClineProvider
 			customSupportPrompts: stateValues.customSupportPrompts ?? {},
 			enhancementApiConfigId: stateValues.enhancementApiConfigId,
 			experiments: stateValues.experiments ?? experimentDefault,
-			autoApprovalEnabled: stateValues.autoApprovalEnabled ?? false,
+			autoApprovalEnabled: stateValues.autoApprovalEnabled ?? true,
 			customModes,
-			maxOpenTabsContext: stateValues.maxOpenTabsContext ?? 20,
-			maxWorkspaceFiles: stateValues.maxWorkspaceFiles ?? 200,
+			maxOpenTabsContext: stateValues.maxOpenTabsContext ?? 0,
+			maxWorkspaceFiles: stateValues.maxWorkspaceFiles ?? 0,
+			workspaceRecursiveFileListInEnvironment: stateValues.workspaceRecursiveFileListInEnvironment ?? false,
 			disabledTools: stateValues.disabledTools,
-			telemetrySetting: stateValues.telemetrySetting || "unset",
+			telemetrySetting: stateValues.telemetrySetting || "disabled",
 			showRooIgnoredFiles: stateValues.showRooIgnoredFiles ?? false,
 			enableSubfolderRules: stateValues.enableSubfolderRules ?? false,
 			maxImageFileSize: stateValues.maxImageFileSize ?? 5,
@@ -2574,6 +2586,55 @@ export class ClineProvider
 			openRouterImageApiKey: stateValues.openRouterImageApiKey,
 			openRouterImageGenerationSelectedModel: stateValues.openRouterImageGenerationSelectedModel,
 		}
+	}
+
+	private getCloudOrganizationsForState(): CloudOrganizationMembership[] {
+		if (!CLOUD_FEATURES_ENABLED || !CloudService.hasInstance()) {
+			return this.cloudOrganizationsCache ?? []
+		}
+
+		try {
+			if (CloudService.instance.isCloudAgent) {
+				return []
+			}
+
+			const now = Date.now()
+			const isCacheFresh =
+				this.cloudOrganizationsCache !== null &&
+				this.cloudOrganizationsCacheTimestamp !== null &&
+				now - this.cloudOrganizationsCacheTimestamp < ClineProvider.CLOUD_ORGANIZATIONS_CACHE_DURATION_MS
+
+			if (isCacheFresh) {
+				return this.cloudOrganizationsCache!
+			}
+
+			this.fetchCloudOrganizationsInBackground()
+		} catch (_error) {
+			// Ignore this error.
+		}
+
+		return this.cloudOrganizationsCache ?? []
+	}
+
+	private fetchCloudOrganizationsInBackground(): void {
+		if (this.cloudOrganizationsFetchPromise) {
+			return
+		}
+
+		this.cloudOrganizationsFetchPromise = (async () => {
+			try {
+				const cloudOrganizations = await CloudService.instance.getOrganizationMemberships()
+				this.cloudOrganizationsCache = cloudOrganizations
+				this.cloudOrganizationsCacheTimestamp = Date.now()
+				if (this.isViewLaunched) {
+					await this.postStateToWebview()
+				}
+			} catch (_error) {
+				// Ignore this error.
+			} finally {
+				this.cloudOrganizationsFetchPromise = null
+			}
+		})()
 	}
 
 	/**

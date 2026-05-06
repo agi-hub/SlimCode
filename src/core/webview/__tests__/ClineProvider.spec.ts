@@ -1,4 +1,4 @@
-// pnpm --filter roo-cline test core/webview/__tests__/ClineProvider.spec.ts
+// pnpm --filter SlimCode test core/webview/__tests__/ClineProvider.spec.ts
 
 import Anthropic from "@anthropic-ai/sdk"
 import * as vscode from "vscode"
@@ -531,8 +531,9 @@ describe("ClineProvider", () => {
 			mode: defaultModeSlug,
 			customModes: [],
 			experiments: experimentDefault,
-			maxOpenTabsContext: 20,
-			maxWorkspaceFiles: 200,
+			maxOpenTabsContext: 0,
+			maxWorkspaceFiles: 0,
+			workspaceRecursiveFileListInEnvironment: false,
 			telemetrySetting: "unset",
 			showRooIgnoredFiles: false,
 			enableSubfolderRules: false,
@@ -769,12 +770,11 @@ describe("ClineProvider", () => {
 		expect(state).toHaveProperty("writeDelayMs")
 	})
 
-	test("language is set to VSCode language", async () => {
-		// Mock VSCode language as Spanish
+	test("language defaults to zh-CN when not stored in global state", async () => {
 		;(vscode.env as any).language = "pt-BR"
 
 		const state = await provider.getState()
-		expect(state.language).toBe("pt-BR")
+		expect(state.language).toBe("zh-CN")
 	})
 
 	test("writeDelayMs defaults to 1000ms", async () => {

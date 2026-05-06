@@ -43,6 +43,7 @@ describe("organizationFilters", () => {
 			expect(result).toContainEqual({ value: "anthropic", label: "Anthropic" })
 			expect(result).toContainEqual({ value: "gemini", label: "Gemini" })
 		})
+
 	})
 
 	describe("filterModels", () => {
@@ -117,5 +118,6 @@ describe("organizationFilters", () => {
 			expect(Object.keys(result!)).toHaveLength(1)
 			expect(result!["model1"]).toBeDefined()
 		})
+
 	})
 })

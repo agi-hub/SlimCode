@@ -12,12 +12,14 @@ import { ExtensionStateContextType } from "@/context/ExtensionStateContext"
 interface UISettingsProps extends HTMLAttributes<HTMLDivElement> {
 	reasoningBlockCollapsed: boolean
 	enterBehavior: "send" | "newline"
+	simpleReply: boolean
 	setCachedStateField: SetCachedStateField<keyof ExtensionStateContextType>
 }
 
 export const UISettings = ({
 	reasoningBlockCollapsed,
 	enterBehavior,
+	simpleReply,
 	setCachedStateField,
 	...props
 }: UISettingsProps) => {
@@ -88,6 +90,24 @@ export const UISettings = ({
 							</VSCodeCheckbox>
 							<div className="text-vscode-descriptionForeground text-sm ml-5 mt-1">
 								{t("settings:ui.requireCtrlEnterToSend.description", { primaryMod })}
+							</div>
+						</div>
+					</SearchableSetting>
+
+					{/* Simple Reply Setting */}
+					<SearchableSetting
+						settingId="ui-simple-reply"
+						section="ui"
+						label={t("settings:ui.simpleReply.label")}>
+						<div className="flex flex-col gap-1">
+							<VSCodeCheckbox
+								checked={simpleReply}
+								onChange={(e: any) => setCachedStateField("simpleReply", e.target.checked)}
+								data-testid="simple-reply-checkbox">
+								<span className="font-medium">{t("settings:ui.simpleReply.label")}</span>
+							</VSCodeCheckbox>
+							<div className="text-vscode-descriptionForeground text-sm ml-5 mt-1">
+								{t("settings:ui.simpleReply.description")}
 							</div>
 						</div>
 					</SearchableSetting>

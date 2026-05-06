@@ -160,6 +160,13 @@ export class Terminal extends BaseTerminal {
 			VTE_VERSION: "0",
 		}
 
+		// On Windows, set UTF-8 encoding flags so that tools like Python output
+		// Chinese/CJK characters correctly instead of garbled text.
+		if (process.platform === "win32") {
+			env.PYTHONUTF8 = "1"
+			env.PYTHONIOENCODING = "utf-8"
+		}
+
 		// Set Oh My Zsh shell integration if enabled
 		if (Terminal.getTerminalZshOhMy()) {
 			env.ITERM_SHELL_INTEGRATION_INSTALLED = "Yes"

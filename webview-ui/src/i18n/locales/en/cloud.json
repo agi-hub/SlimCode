@@ -6,7 +6,7 @@
 	"signIn": "Connect to Roo Code Cloud",
 	"connect": "Get started",
 	"cloudBenefitsTitle": "Try Roo Code Cloud",
-	"cloudBenefitProvider": "Access free and paid models that work great with Roo",
+	"cloudBenefitProvider": "Access free and paid models that work great with SlimCode",
 	"cloudBenefitCloudAgents": "Give tasks to autonomous Cloud agents",
 	"cloudBenefitTriggers": "Get code reviews on GitHub, start tasks from Slack and more",
 	"cloudBenefitWalkaway": "Follow and control tasks from anywhere (including your phone)",
@@ -26,8 +26,8 @@
 	"switchAccount": "Switch Roo Code Cloud Account",
 	"createTeamAccount": "Create Team Account",
 	"upsell": {
-		"autoApprovePowerUser": "Giving Roo some independence? Control it from anywhere with Roo Code Cloud. <learnMoreLink>Learn more</learnMoreLink>.",
+		"autoApprovePowerUser": "Giving SlimCode some independence? Control it from anywhere with Roo Code Cloud. <learnMoreLink>Learn more</learnMoreLink>.",
 		"longRunningTask": "This might take a while. Continue from anywhere with Cloud.",
-		"taskList": "Enjoying Roo? Check out Roo Code Cloud: follow and control your tasks from anywhere, run autonomous Cloud agents, get usage stats and more. <learnMoreLink>Learn more</learnMoreLink>."
+		"taskList": "Enjoying SlimCode? Check out Roo Code Cloud: follow and control your tasks from anywhere, run autonomous Cloud agents, get usage stats and more. <learnMoreLink>Learn more</learnMoreLink>."
 	}
 }
