@@ -2,7 +2,7 @@
 	"name": "SlimCode",
 	"displayName": "%extension.displayName%",
 	"description": "%extension.description%",
-	"publisher": "RooVeterinaryInc",
+	"publisher": "agi-hub",
 	"version": "3.51.3",
 	"icon": "assets/icons/icon.png",
 	"galleryBanner": {
@@ -18,9 +18,9 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/RooCodeInc/Roo-Code"
+		"url": "https://github.com/agi-hub/SlimCode"
 	},
-	"homepage": "https://roocode.com",
+	"homepage": "https://github.com/agi-hub/SlimCode",
 	"categories": [
 		"AI",
 		"Chat",
